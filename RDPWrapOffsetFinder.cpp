@@ -3,32 +3,6 @@
 #include <Dbghelp.h>
 #include <Zydis/Zydis.h>
 
-#if _WIN64
-#define HEX "%llX"
-#define ARCH "x64"
-#define ADDR DWORD64
-#define REG_IP ZYDIS_REGISTER_RIP
-#define SLGetWindowsInformationDWORDWrapper "?SLGetWindowsInformationDWORDWrapper@@YAJPEBGPEAK@Z"
-#define CUtils_IsSingleSessionPerUser "?IsSingleSessionPerUser@CUtils@@SAJPEAH@Z"
-#define CSessionArbitrationHelper_IsSingleSessionPerUser "?IsSingleSessionPerUserEnabled@CSessionArbitrationHelper@@UEAAJPEAH@Z"
-#define CDefPolicy_Query "?Query@CDefPolicy@@UEAAJPEAH@Z"
-#define CSLQuery_Initialize "?Initialize@CSLQuery@@SAJXZ"
-#define CSLQuery_IsLicenseTypeLocalOnly "?IsLicenseTypeLocalOnly@CSLQuery@@SAJAEAU_GUID@@PEAH@Z"
-#define CEnforcementCore_GetInstanceOfTSLicense "?GetInstanceOfTSLicense@CEnforcementCore@@UEAAJAEAU_GUID@@PEAPEAVITSLicense@@@Z"
-#else
-#define HEX "%lX"
-#define ARCH "x86"
-#define ADDR DWORD32
-#define REG_IP ZYDIS_REGISTER_EIP
-#define SLGetWindowsInformationDWORDWrapper "?SLGetWindowsInformationDWORDWrapper@@YGJPBGPAK@Z"
-#define CUtils_IsSingleSessionPerUser "?IsSingleSessionPerUser@CUtils@@SGJPAH@Z"
-#define CSessionArbitrationHelper_IsSingleSessionPerUser "?IsSingleSessionPerUserEnabled@CSessionArbitrationHelper@@UAGJPAH@Z"
-#define CDefPolicy_Query "?Query@CDefPolicy@@UAEJPAH@Z"
-#define CSLQuery_Initialize "?Initialize@CSLQuery@@SGJXZ"
-#define CSLQuery_IsLicenseTypeLocalOnly "?IsLicenseTypeLocalOnly@CSLQuery@@SGJAAU_GUID@@PAH@Z"
-#define CEnforcementCore_GetInstanceOfTSLicense "?GetInstanceOfTSLicense@CEnforcementCore@@UAGJAAU_GUID@@PAPAVITSLicense@@@Z"
-#endif
-
 typedef struct {
     WORD             wLength;
     WORD             wValueLength;
@@ -40,7 +14,7 @@ typedef struct {
     WORD             Children;
 } VS_VERSIONINFO, *PVS_VERSIONINFO;
 
-void LocalOnlyPatch(ZydisDecoder *pDecoder, ADDR IP, ADDR pdwBase, ADDR target) {
+void LocalOnlyPatch(ZydisDecoder *pDecoder, DWORD64 IP, DWORD64 pdwBase, DWORD64 target) {
     ZyanUSize length = 256;
     ZydisDecodedInstruction instruction;
     while (ZYAN_SUCCESS(ZydisDecoderDecodeBuffer(pDecoder, (void *)IP, length, &instruction)))
@@ -51,7 +25,8 @@ void LocalOnlyPatch(ZydisDecoder *pDecoder, ADDR IP, ADDR pdwBase, ADDR target) 
             instruction.operands[0].type == ZYDIS_OPERAND_TYPE_IMMEDIATE &&
             instruction.operands[0].imm.is_relative == ZYAN_TRUE &&
             instruction.operands[1].type == ZYDIS_OPERAND_TYPE_REGISTER &&
-            instruction.operands[1].reg.value == REG_IP &&
+            (instruction.operands[1].reg.value == ZYDIS_REGISTER_RIP ||
+                instruction.operands[1].reg.value == ZYDIS_REGISTER_EIP) &&
             target == IP + instruction.operands[0].imm.value.u)
         {
             if (!ZYAN_SUCCESS(ZydisDecoderDecodeBuffer(pDecoder, (void*)IP, length, &instruction)) ||
@@ -64,7 +39,8 @@ void LocalOnlyPatch(ZydisDecoder *pDecoder, ADDR IP, ADDR pdwBase, ADDR target) 
                 instruction.operands[0].type != ZYDIS_OPERAND_TYPE_IMMEDIATE ||
                 instruction.operands[0].imm.is_relative != ZYAN_TRUE ||
                 instruction.operands[1].type != ZYDIS_OPERAND_TYPE_REGISTER ||
-                instruction.operands[1].reg.value != REG_IP) break;
+                instruction.operands[1].reg.value != ZYDIS_REGISTER_RIP &&
+                instruction.operands[1].reg.value != ZYDIS_REGISTER_EIP) break;
 
             if (instruction.mnemonic == ZYDIS_MNEMONIC_JNS)
             {
@@ -89,42 +65,50 @@ void LocalOnlyPatch(ZydisDecoder *pDecoder, ADDR IP, ADDR pdwBase, ADDR target) 
                 instruction.operands[0].type != ZYDIS_OPERAND_TYPE_IMMEDIATE ||
                 instruction.operands[0].imm.is_relative != ZYAN_TRUE ||
                 instruction.operands[1].type != ZYDIS_OPERAND_TYPE_REGISTER ||
-                instruction.operands[1].reg.value != REG_IP ||
+                instruction.operands[1].reg.value != ZYDIS_REGISTER_RIP &&
+                instruction.operands[1].reg.value != ZYDIS_REGISTER_EIP ||
                 target != IP + instruction.operands[0].imm.value.u + instruction.length) break;
 
             const char* jmp = "jmpshort";
             if (instruction.raw.imm[0].offset == 2) jmp = "nopjmp";
-            printf("LocalOnlyPatch." ARCH "=1\n"
-                "LocalOnlyOffset." ARCH "=" HEX "\n"
-                "LocalOnlyCode." ARCH "=%s\n", IP - pdwBase, jmp);
+            printf(pDecoder->address_width == ZYDIS_ADDRESS_WIDTH_64 
+                ? "LocalOnlyPatch.x64=1\n"
+                "LocalOnlyOffset.x64=%llX\n"
+                "LocalOnlyCode.x64=%s\n"
+                : "LocalOnlyPatch.x86=1\n"
+                "LocalOnlyOffset.x86=%llX\n"
+                "LocalOnlyCode.x86=%s\n", IP - pdwBase, jmp);
             return;
         }
     }
     puts("ERROR: LocalOnlyPatch patten not found");
 }
 
-void DefPolicyPatch(ZydisDecoder* pDecoder, ADDR IP, ADDR pdwBase) {
+void DefPolicyPatch(ZydisDecoder* pDecoder, DWORD64 IP, DWORD64 pdwBase) {
     ZyanUSize length = 128;
     ZyanUSize lastLength = 0;
     ZydisDecodedInstruction instruction;
     while (ZYAN_SUCCESS(ZydisDecoderDecodeBuffer(pDecoder, (void*)IP, length, &instruction)))
     {
-        if (instruction.operand_count == 3 && instruction.mnemonic == ZYDIS_MNEMONIC_CMP &&
-#if _WIN64
-            instruction.operands[0].type == ZYDIS_OPERAND_TYPE_MEMORY &&
-            instruction.operands[0].mem.disp.value == 0x63c &&
-            instruction.operands[1].type == ZYDIS_OPERAND_TYPE_REGISTER)
+        if (instruction.operand_count == 3 && instruction.mnemonic == ZYDIS_MNEMONIC_CMP) 
         {
-            const char* reg1 = ZydisRegisterGetString(instruction.operands[1].reg.value);
-            const char* reg2 = ZydisRegisterGetString(instruction.operands[0].mem.base);
-#else
-            instruction.operands[1].type == ZYDIS_OPERAND_TYPE_MEMORY &&
-            instruction.operands[1].mem.disp.value == 0x320 &&
-            instruction.operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER)
-        {
-            const char* reg1 = ZydisRegisterGetString(instruction.operands[0].reg.value);
-            const char* reg2 = ZydisRegisterGetString(instruction.operands[1].mem.base);
-#endif
+            const char* reg1;
+            const char* reg2;
+            if (instruction.operands[0].type == ZYDIS_OPERAND_TYPE_MEMORY &&
+                instruction.operands[0].mem.disp.value == 0x63c &&
+                instruction.operands[1].type == ZYDIS_OPERAND_TYPE_REGISTER)
+            {
+                reg1 = ZydisRegisterGetString(instruction.operands[1].reg.value);
+                reg2 = ZydisRegisterGetString(instruction.operands[0].mem.base);
+            }
+            else if (instruction.operands[1].type == ZYDIS_OPERAND_TYPE_MEMORY &&
+                instruction.operands[1].mem.disp.value == 0x320 &&
+                instruction.operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER)
+            {
+                reg1 = ZydisRegisterGetString(instruction.operands[0].reg.value);
+                reg2 = ZydisRegisterGetString(instruction.operands[1].mem.base);
+            }
+            else goto out;
             const char* jmp = "";
 
             length -= instruction.length;
@@ -139,12 +123,16 @@ void DefPolicyPatch(ZydisDecoder* pDecoder, ADDR IP, ADDR pdwBase) {
             else if (instruction.mnemonic != ZYDIS_MNEMONIC_JZ && instruction.mnemonic != ZYDIS_MNEMONIC_POP)
                 break;
 
-            printf("DefPolicyPatch." ARCH "=1\n"
-                "DefPolicyOffset." ARCH "=" HEX "\n"
-                "DefPolicyCode." ARCH "=CDefPolicy_Query_%s_%s%s\n", IP - pdwBase, reg1, reg2, jmp);
+            printf(pDecoder->address_width == ZYDIS_ADDRESS_WIDTH_64 
+                ? "DefPolicyPatch.x64=1\n"
+                "DefPolicyOffset.x64=%llX\n"
+                "DefPolicyCode.x64=CDefPolicy_Query_%s_%s%s\n"
+                : "DefPolicyPatch.x86=1\n"
+                "DefPolicyOffset.x86=%llX\n"
+                "DefPolicyCode.x86=CDefPolicy_Query_%s_%s%s\n", IP - pdwBase, reg1, reg2, jmp);
             return;
         }
-
+out:
         IP += instruction.length;
         length -= instruction.length;
         lastLength = instruction.length;
@@ -152,7 +140,7 @@ void DefPolicyPatch(ZydisDecoder* pDecoder, ADDR IP, ADDR pdwBase) {
     puts("ERROR: DefPolicyPatch patten not found");
 }
 
-int SingleUserPatch(ZydisDecoder* pDecoder, ADDR IP, ADDR pdwBase, ADDR target) {
+int SingleUserPatch(ZydisDecoder* pDecoder, DWORD64 IP, DWORD64 pdwBase, DWORD64 target) {
     ZyanUSize length = 128;
     ZydisDecodedInstruction instruction;
     while (ZYAN_SUCCESS(ZydisDecoderDecodeBuffer(pDecoder, (void*)IP, length, &instruction)))
@@ -163,7 +151,8 @@ int SingleUserPatch(ZydisDecoder* pDecoder, ADDR IP, ADDR pdwBase, ADDR target) 
             instruction.operands[0].type == ZYDIS_OPERAND_TYPE_IMMEDIATE &&
             instruction.operands[0].imm.is_relative == ZYAN_TRUE &&
             instruction.operands[1].type == ZYDIS_OPERAND_TYPE_REGISTER &&
-            instruction.operands[1].reg.value == REG_IP &&
+            (instruction.operands[1].reg.value == ZYDIS_REGISTER_RIP ||
+                instruction.operands[1].reg.value == ZYDIS_REGISTER_EIP) &&
             target == IP + instruction.operands[0].imm.value.u)
         {
             while (ZYAN_SUCCESS(ZydisDecoderDecodeBuffer(pDecoder, (void*)IP, length, &instruction)))
@@ -172,16 +161,24 @@ int SingleUserPatch(ZydisDecoder* pDecoder, ADDR IP, ADDR pdwBase, ADDR target) 
                     instruction.operands[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE &&
                     instruction.operands[1].imm.value.u == 1)
                 {
-                    printf("SingleUserPatch." ARCH "=1\n"
-                        "SingleUserOffset." ARCH "=" HEX "\n"
-                        "SingleUserCode." ARCH "=Zero\n", IP + instruction.raw.imm[0].offset - pdwBase);
+                    printf(pDecoder->address_width == ZYDIS_ADDRESS_WIDTH_64 
+                        ? "SingleUserPatch.x64=1\n"
+                        "SingleUserOffset.x64=%llX\n"
+                        "SingleUserCode.x64=Zero\n"
+                        : "SingleUserPatch.x86=1\n"
+                        "SingleUserOffset.x86=%llX\n"
+                        "SingleUserCode.x86=Zero\n", IP + instruction.raw.imm[0].offset - pdwBase);
                     return 1;
                 } else if (instruction.operand_count == 2 && instruction.mnemonic == ZYDIS_MNEMONIC_INC &&
                     instruction.operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER)
                 {
-                    printf("SingleUserPatch." ARCH "=1\n"
-                        "SingleUserOffset." ARCH "=" HEX "\n"
-                        "SingleUserCode." ARCH "=nop\n", IP - pdwBase);
+                    printf(pDecoder->address_width == ZYDIS_ADDRESS_WIDTH_64
+                        ? "SingleUserPatch.x64=1\n"
+                        "SingleUserOffset.x64=%llX\n"
+                        "SingleUserCode.x64=nop\n"
+                        : "SingleUserPatch.x86=1\n"
+                        "SingleUserOffset.x86=%llX\n"
+                        "SingleUserCode.x86=nop\n", IP - pdwBase);
                     return 1;
                 }
                 IP += instruction.length;
@@ -197,102 +194,114 @@ int main(int argc, char** argv)
 {
     HANDLE hProcess = GetCurrentProcess();
     char szTermsrv[MAX_PATH];
-    SymSetOptions(SYMOPT_EXACT_SYMBOLS | SYMOPT_ALLOW_ABSOLUTE_SYMBOLS | SYMOPT_DEBUG);
+    SymSetOptions(SYMOPT_EXACT_SYMBOLS | SYMOPT_ALLOW_ABSOLUTE_SYMBOLS | SYMOPT_DEBUG | SYMOPT_UNDNAME);
     const char* symPath = NULL;
     GetEnvironmentVariableA("_NT_SYMBOL_PATH", NULL, 0);
     if (GetLastError() == ERROR_ENVVAR_NOT_FOUND) symPath = "cache*;srv*https://msdl.microsoft.com/download/symbols";
-    if (!SymInitialize(hProcess, symPath, FALSE)) ExitProcess(-1);
+    if (!SymInitialize(hProcess, symPath, FALSE)) return -1;
     if (argc >= 2) lstrcpyA(szTermsrv, argv[1]);
     else lstrcpyA(szTermsrv + GetSystemDirectoryA(szTermsrv, sizeof(szTermsrv) / sizeof(char)), "\\termsrv.dll");
-    HMODULE hMod = LoadLibraryExA(szTermsrv, NULL, DONT_RESOLVE_DLL_REFERENCES);
-    if (!hMod) ExitProcess(-2);
-    if (!SymLoadModule(hProcess, NULL, szTermsrv, NULL, (ADDR)hMod, 0)) ExitProcess(-3);
+    HMODULE hMod = LoadLibraryExA(szTermsrv, NULL, LOAD_LIBRARY_AS_DATAFILE);
+    if (!hMod) return -2;
+    DWORD64 base = (size_t)hMod & ~3;
+    PIMAGE_DOS_HEADER pDos = (PIMAGE_DOS_HEADER)(base);
+    PIMAGE_NT_HEADERS64 pNT = (PIMAGE_NT_HEADERS64)(base + pDos->e_lfanew);
+    PIMAGE_SECTION_HEADER pSection = IMAGE_FIRST_SECTION(pNT);
+    base -= pSection->VirtualAddress - pSection->PointerToRawData;
+
+    const char* arch = "x64";
+    ZydisDecoder decoder;
+    if (pNT->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC)
+        ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_ADDRESS_WIDTH_64);
+    else {
+        ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LONG_COMPAT_32, ZYDIS_ADDRESS_WIDTH_32);
+        arch = "x86";
+    }
+
+    if (!SymLoadModuleEx(hProcess, NULL, szTermsrv, NULL, 0, 0, NULL, 0)) return -3;
+
     HRSRC hResInfo = FindResourceA(hMod, MAKEINTRESOURCEA(1), MAKEINTRESOURCEA(16));
     PVS_VERSIONINFO hResData = (PVS_VERSIONINFO)LoadResource(hMod, hResInfo);
-    uint16_t *pointer = (uint16_t*)&hResData->Value.dwFileVersionMS;
     SYMBOL_INFO symbol;
     symbol.SizeOfStruct = sizeof(SYMBOL_INFO);
     symbol.MaxNameLen = 0;
 
-    printf("[%hu.%hu.%hu.%hu]\n", *(pointer + 1), *pointer, *(pointer + 3), *(pointer + 2));
-    ZydisDecoder decoder;
-#if _WIN64
-    ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_ADDRESS_WIDTH_64);
-#else
-    ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LONG_COMPAT_32, ZYDIS_ADDRESS_WIDTH_32);
-#endif
+    printf("[%hu.%hu.%hu.%hu]\n", HIWORD(hResData->Value.dwFileVersionMS), LOWORD(hResData->Value.dwFileVersionMS),
+        HIWORD(hResData->Value.dwFileVersionLS), LOWORD(hResData->Value.dwFileVersionLS));
 
     if (SymFromName(hProcess, "memset", &symbol) || SymFromName(hProcess, "_memset", &symbol))
     {
-        ADDR target = symbol.Address;
-        if (SymFromName(hProcess, CSessionArbitrationHelper_IsSingleSessionPerUser, &symbol) &&
-            SingleUserPatch(&decoder, symbol.Address, symbol.ModBase, target));
-        else if (SymFromName(hProcess, CUtils_IsSingleSessionPerUser, &symbol))
-            if(!SingleUserPatch(&decoder, symbol.Address, symbol.ModBase, target))
-                puts("ERROR: SingleUserPatch patten not found");
+        DWORD64 target = symbol.Address - symbol.ModBase + base;
+        if (SymFromName(hProcess, "CSessionArbitrationHelper::IsSingleSessionPerUserEnabled", &symbol) &&
+            SingleUserPatch(&decoder, symbol.Address - symbol.ModBase + base, base, target));
+        else if (SymFromName(hProcess, "CUtils::IsSingleSessionPerUser", &symbol))
+            if(!SingleUserPatch(&decoder, symbol.Address - symbol.ModBase + base, base, target))
+                puts("ERROR: SingleUserPatch not found");
     }
 
-    if (SymFromName(hProcess, CDefPolicy_Query, &symbol))
-        DefPolicyPatch(&decoder, symbol.Address, symbol.ModBase);
+    if (SymFromName(hProcess, "CDefPolicy::Query", &symbol))
+        DefPolicyPatch(&decoder, symbol.Address - symbol.ModBase + base, base);
+    else puts("ERROR: CDefPolicy_Query not found");
 
     if (hResData->Value.dwFileVersionMS <= 0x00060001) return 0;
 
     if (hResData->Value.dwFileVersionMS == 0x00060002)
     {
-        if (SymFromName(hProcess, SLGetWindowsInformationDWORDWrapper, &symbol))
-            printf("SLPolicyInternal." ARCH "=1\n"
-                "SLPolicyOffset." ARCH "=%llX\n"
-                "SLPolicyFunc." ARCH "=New_Win8SL\n", symbol.Address - symbol.ModBase);
+        if (SymFromName(hProcess, "SLGetWindowsInformationDWORDWrapper", &symbol))
+            _printf_p("SLPolicyInternal.%1$s=1\n"
+                "SLPolicyOffset.%1$s=%2$llX\n"
+                "SLPolicyFunc.%1$s=New_Win8SL\n", arch, symbol.Address - symbol.ModBase);
         else puts("ERROR: SLGetWindowsInformationDWORDWrapper not found");
         return 0;
     }
 
-    if (SymFromName(hProcess, CEnforcementCore_GetInstanceOfTSLicense, &symbol))
+    if (SymFromName(hProcess, "CEnforcementCore::GetInstanceOfTSLicense", &symbol))
     {
-        ADDR addr = symbol.Address;
-        if (SymFromName(hProcess, CSLQuery_IsLicenseTypeLocalOnly, &symbol))
-            LocalOnlyPatch(&decoder, addr, symbol.ModBase, symbol.Address);
-        else puts("ERROR: CSLQuery_IsLicenseTypeLocalOnly not found");
-    } else puts("ERROR: CEnforcementCore_GetInstanceOfTSLicense not found");
+        DWORD64 addr = symbol.Address - symbol.ModBase + base;
+        if (SymFromName(hProcess, "CSLQuery::IsLicenseTypeLocalOnly", &symbol))
+            LocalOnlyPatch(&decoder, addr, base, symbol.Address - symbol.ModBase + base);
+        else puts("ERROR: IsLicenseTypeLocalOnly not found");
+    } else puts("ERROR: GetInstanceOfTSLicense not found");
 
-    if (SymFromName(hProcess, CSLQuery_Initialize, &symbol))
+    if (SymFromName(hProcess, "CSLQuery::Initialize", &symbol))
     {
-        printf("SLInitHook." ARCH "=1\n"
-            "SLInitOffset." ARCH "=%llX\n"
-            "SLInitFunc." ARCH "=New_CSLQuery_Initialize\n", symbol.Address - symbol.ModBase);
+        _printf_p("SLInitHook.%1$s=1\n"
+            "SLInitOffset.%1$s=%2$llX\n"
+            "SLInitFunc.%1$s=New_CSLQuery_Initialize\n", arch, symbol.Address - symbol.ModBase);
 
-        printf("\n[%hu.%hu.%hu.%hu-SLInit]\n", *(pointer + 1), *pointer, *(pointer + 3), *(pointer + 2));
+        printf("\n[%hu.%hu.%hu.%hu-SLInit]\n", HIWORD(hResData->Value.dwFileVersionMS), LOWORD(hResData->Value.dwFileVersionMS),
+            HIWORD(hResData->Value.dwFileVersionLS), LOWORD(hResData->Value.dwFileVersionLS));
 
-        if (SymFromName(hProcess, "?bServerSku@CSLQuery@@0HA", &symbol))
-            printf("bServerSku." ARCH "=%llX\n", symbol.Address - symbol.ModBase);
+        if (SymFromName(hProcess, "CSLQuery::bServerSku", &symbol))
+            printf("bServerSku.%s=%llX\n", arch, symbol.Address - symbol.ModBase);
         else puts("ERROR: bServerSku not found");
 
-        if (SymFromName(hProcess, "?bRemoteConnAllowed@CSLQuery@@0HA", &symbol))
-            printf("bRemoteConnAllowed." ARCH "=%llX\n", symbol.Address - symbol.ModBase);
+        if (SymFromName(hProcess, "CSLQuery::bRemoteConnAllowed", &symbol))
+            printf("bRemoteConnAllowed.%s=%llX\n", arch, symbol.Address - symbol.ModBase);
         else puts("ERROR: bRemoteConnAllowed not found");
 
-        if (SymFromName(hProcess, "?bFUSEnabled@CSLQuery@@0HA", &symbol))
-            printf("bFUSEnabled." ARCH "=%llX\n", symbol.Address - symbol.ModBase);
+        if (SymFromName(hProcess, "CSLQuery::bFUSEnabled", &symbol))
+            printf("bFUSEnabled.%s=%llX\n", arch, symbol.Address - symbol.ModBase);
         else puts("ERROR: bFUSEnabled not found");
 
-        if (SymFromName(hProcess, "?bAppServerAllowed@CSLQuery@@0HA", &symbol))
-            printf("bAppServerAllowed." ARCH "=%llX\n", symbol.Address - symbol.ModBase);
+        if (SymFromName(hProcess, "CSLQuery::bAppServerAllowed", &symbol))
+            printf("bAppServerAllowed.%s=%llX\n", arch, symbol.Address - symbol.ModBase);
         else puts("ERROR: bAppServerAllowed not found");
 
-        if (SymFromName(hProcess, "?bMultimonAllowed@CSLQuery@@0HA", &symbol))
-            printf("bMultimonAllowed." ARCH "=%llX\n", symbol.Address - symbol.ModBase);
+        if (SymFromName(hProcess, "CSLQuery::bMultimonAllowed", &symbol))
+            printf("bMultimonAllowed.%s=%llX\n", arch, symbol.Address - symbol.ModBase);
         else puts("ERROR: bMultimonAllowed not found");
 
-        if (SymFromName(hProcess, "?lMaxUserSessions@CSLQuery@@0JA", &symbol))
-            printf("lMaxUserSessions." ARCH "=%llX\n", symbol.Address - symbol.ModBase);
+        if (SymFromName(hProcess, "CSLQuery::lMaxUserSessions", &symbol))
+            printf("lMaxUserSessions.%s=%llX\n", arch, symbol.Address - symbol.ModBase);
         else puts("ERROR: lMaxUserSessions not found");
 
-        if (SymFromName(hProcess, "?ulMaxDebugSessions@CSLQuery@@0KA", &symbol))
-            printf("ulMaxDebugSessions." ARCH "=%llX\n", symbol.Address - symbol.ModBase);
+        if (SymFromName(hProcess, "CSLQuery::ulMaxDebugSessions", &symbol))
+            printf("ulMaxDebugSessions.%s=%llX\n", arch, symbol.Address - symbol.ModBase);
         else puts("ERROR: ulMaxDebugSessions not found");
 
-        if (SymFromName(hProcess, "?bInitialized@CSLQuery@@0HA", &symbol))
-            printf("bInitialized." ARCH "=%llX\n", symbol.Address - symbol.ModBase);
+        if (SymFromName(hProcess, "CSLQuery::bInitialized", &symbol))
+            printf("bInitialized.%s=%llX\n", arch, symbol.Address - symbol.ModBase);
         else puts("ERROR: bInitialized not found");
     } else puts("ERROR: CSLQuery_Initialize not found");
     return 0;
