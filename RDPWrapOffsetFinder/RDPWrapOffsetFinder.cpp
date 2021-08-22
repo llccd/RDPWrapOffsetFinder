@@ -203,10 +203,10 @@ int main(int argc, char** argv)
     auto hProcess = GetCurrentProcess();
     char szTermsrv[MAX_PATH];
     SymSetOptions(SYMOPT_EXACT_SYMBOLS | SYMOPT_ALLOW_ABSOLUTE_SYMBOLS | SYMOPT_DEBUG | SYMOPT_UNDNAME);
-    const char* symPath = NULL;
-    GetEnvironmentVariableA("_NT_SYMBOL_PATH", NULL, 0);
-    if (GetLastError() == ERROR_ENVVAR_NOT_FOUND) symPath = "cache*;srv*https://msdl.microsoft.com/download/symbols";
-    if (!SymInitialize(hProcess, symPath, FALSE)) return -1;
+    LPCWSTR symPath = NULL;
+    GetEnvironmentVariableW(L"_NT_SYMBOL_PATH", NULL, 0);
+    if (GetLastError() == ERROR_ENVVAR_NOT_FOUND) symPath = L"cache*;srv*https://msdl.microsoft.com/download/symbols";
+    if (!SymInitializeW(hProcess, symPath, FALSE)) return -1;
     if (argc >= 2) lstrcpyA(szTermsrv, argv[1]);
     else lstrcpyA(szTermsrv + GetSystemDirectoryA(szTermsrv, sizeof(szTermsrv) / sizeof(char)), "\\termsrv.dll");
     auto hMod = LoadLibraryExA(szTermsrv, NULL, LOAD_LIBRARY_AS_DATAFILE);
@@ -228,29 +228,29 @@ int main(int argc, char** argv)
 
     if (!SymLoadModuleEx(hProcess, NULL, szTermsrv, NULL, 0, 0, NULL, 0)) return -3;
 
-    auto hResInfo = FindResourceA(hMod, MAKEINTRESOURCEA(1), MAKEINTRESOURCEA(16));
+    auto hResInfo = FindResourceW(hMod, MAKEINTRESOURCEW(1), MAKEINTRESOURCEW(16));
     if (!hResInfo) return -4;
     auto hResData = (PVS_VERSIONINFO)LoadResource(hMod, hResInfo);
     if (!hResData) return -5;
 
-    SYMBOL_INFO symbol;
-    symbol.SizeOfStruct = sizeof(SYMBOL_INFO);
+    SYMBOL_INFOW symbol;
+    symbol.SizeOfStruct = sizeof(SYMBOL_INFOW);
     symbol.MaxNameLen = 0;
 
     printf("[%hu.%hu.%hu.%hu]\n", HIWORD(hResData->Value.dwFileVersionMS), LOWORD(hResData->Value.dwFileVersionMS),
         HIWORD(hResData->Value.dwFileVersionLS), LOWORD(hResData->Value.dwFileVersionLS));
 
-    if (SymFromName(hProcess, "memset", &symbol) || SymFromName(hProcess, "_memset", &symbol))
+    if (SymFromNameW(hProcess, L"memset", &symbol) || SymFromNameW(hProcess, L"_memset", &symbol))
     {
         auto target = symbol.Address - symbol.ModBase;
-        if (SymFromName(hProcess, "CSessionArbitrationHelper::IsSingleSessionPerUserEnabled", &symbol) &&
+        if (SymFromNameW(hProcess, L"CSessionArbitrationHelper::IsSingleSessionPerUserEnabled", &symbol) &&
             SingleUserPatch(&decoder, symbol.Address - symbol.ModBase, base, target));
-        else if (SymFromName(hProcess, "CUtils::IsSingleSessionPerUser", &symbol))
+        else if (SymFromNameW(hProcess, L"CUtils::IsSingleSessionPerUser", &symbol))
             if(!SingleUserPatch(&decoder, symbol.Address - symbol.ModBase, base, target))
                 puts("ERROR: SingleUserPatch not found");
     }
 
-    if (SymFromName(hProcess, "CDefPolicy::Query", &symbol))
+    if (SymFromNameW(hProcess, L"CDefPolicy::Query", &symbol))
         DefPolicyPatch(&decoder, symbol.Address - symbol.ModBase, base);
     else puts("ERROR: CDefPolicy_Query not found");
 
@@ -258,7 +258,7 @@ int main(int argc, char** argv)
 
     if (hResData->Value.dwFileVersionMS == 0x00060002)
     {
-        if (SymFromName(hProcess, "SLGetWindowsInformationDWORDWrapper", &symbol))
+        if (SymFromNameW(hProcess, L"SLGetWindowsInformationDWORDWrapper", &symbol))
             _printf_p("SLPolicyInternal.%1$s=1\n"
                 "SLPolicyOffset.%1$s=%2$llX\n"
                 "SLPolicyFunc.%1$s=New_Win8SL\n", arch, symbol.Address - symbol.ModBase);
@@ -266,15 +266,15 @@ int main(int argc, char** argv)
         return 0;
     }
 
-    if (SymFromName(hProcess, "CEnforcementCore::GetInstanceOfTSLicense", &symbol))
+    if (SymFromNameW(hProcess, L"CEnforcementCore::GetInstanceOfTSLicense", &symbol))
     {
         auto addr = symbol.Address - symbol.ModBase;
-        if (SymFromName(hProcess, "CSLQuery::IsLicenseTypeLocalOnly", &symbol))
+        if (SymFromNameW(hProcess, L"CSLQuery::IsLicenseTypeLocalOnly", &symbol))
             LocalOnlyPatch(&decoder, addr, base, symbol.Address - symbol.ModBase);
         else puts("ERROR: IsLicenseTypeLocalOnly not found");
     } else puts("ERROR: GetInstanceOfTSLicense not found");
 
-    if (SymFromName(hProcess, "CSLQuery::Initialize", &symbol))
+    if (SymFromNameW(hProcess, L"CSLQuery::Initialize", &symbol))
     {
         _printf_p("SLInitHook.%1$s=1\n"
             "SLInitOffset.%1$s=%2$llX\n"
@@ -283,35 +283,35 @@ int main(int argc, char** argv)
         printf("\n[%hu.%hu.%hu.%hu-SLInit]\n", HIWORD(hResData->Value.dwFileVersionMS), LOWORD(hResData->Value.dwFileVersionMS),
             HIWORD(hResData->Value.dwFileVersionLS), LOWORD(hResData->Value.dwFileVersionLS));
 
-        if (SymFromName(hProcess, "CSLQuery::bServerSku", &symbol))
+        if (SymFromNameW(hProcess, L"CSLQuery::bServerSku", &symbol))
             printf("bServerSku.%s=%llX\n", arch, symbol.Address - symbol.ModBase);
         else puts("ERROR: bServerSku not found");
 
-        if (SymFromName(hProcess, "CSLQuery::bRemoteConnAllowed", &symbol))
+        if (SymFromNameW(hProcess, L"CSLQuery::bRemoteConnAllowed", &symbol))
             printf("bRemoteConnAllowed.%s=%llX\n", arch, symbol.Address - symbol.ModBase);
         else puts("ERROR: bRemoteConnAllowed not found");
 
-        if (SymFromName(hProcess, "CSLQuery::bFUSEnabled", &symbol))
+        if (SymFromNameW(hProcess, L"CSLQuery::bFUSEnabled", &symbol))
             printf("bFUSEnabled.%s=%llX\n", arch, symbol.Address - symbol.ModBase);
         else puts("ERROR: bFUSEnabled not found");
 
-        if (SymFromName(hProcess, "CSLQuery::bAppServerAllowed", &symbol))
+        if (SymFromNameW(hProcess, L"CSLQuery::bAppServerAllowed", &symbol))
             printf("bAppServerAllowed.%s=%llX\n", arch, symbol.Address - symbol.ModBase);
         else puts("ERROR: bAppServerAllowed not found");
 
-        if (SymFromName(hProcess, "CSLQuery::bMultimonAllowed", &symbol))
+        if (SymFromNameW(hProcess, L"CSLQuery::bMultimonAllowed", &symbol))
             printf("bMultimonAllowed.%s=%llX\n", arch, symbol.Address - symbol.ModBase);
         else puts("ERROR: bMultimonAllowed not found");
 
-        if (SymFromName(hProcess, "CSLQuery::lMaxUserSessions", &symbol))
+        if (SymFromNameW(hProcess, L"CSLQuery::lMaxUserSessions", &symbol))
             printf("lMaxUserSessions.%s=%llX\n", arch, symbol.Address - symbol.ModBase);
         else puts("ERROR: lMaxUserSessions not found");
 
-        if (SymFromName(hProcess, "CSLQuery::ulMaxDebugSessions", &symbol))
+        if (SymFromNameW(hProcess, L"CSLQuery::ulMaxDebugSessions", &symbol))
             printf("ulMaxDebugSessions.%s=%llX\n", arch, symbol.Address - symbol.ModBase);
         else puts("ERROR: ulMaxDebugSessions not found");
 
-        if (SymFromName(hProcess, "CSLQuery::bInitialized", &symbol))
+        if (SymFromNameW(hProcess, L"CSLQuery::bInitialized", &symbol))
             printf("bInitialized.%s=%llX\n", arch, symbol.Address - symbol.ModBase);
         else puts("ERROR: bInitialized not found");
     } else puts("ERROR: CSLQuery_Initialize not found");

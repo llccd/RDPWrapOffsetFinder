@@ -356,7 +356,7 @@ int main(int argc, char** argv)
             IsSingleSessionPerUser_addr && IsLicenseTypeLocalOnly_addr && CSLQuery_Initialize_func) break;
     }
 
-    auto hResInfo = FindResourceA(hMod, MAKEINTRESOURCEA(1), MAKEINTRESOURCEA(16));
+    auto hResInfo = FindResourceW(hMod, MAKEINTRESOURCEW(1), MAKEINTRESOURCEW(16));
     if (!hResInfo) return -4;
     auto hResData = (PVS_VERSIONINFO)LoadResource(hMod, hResInfo);
     if (!hResData) return -5;
