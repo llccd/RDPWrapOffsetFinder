@@ -76,6 +76,7 @@
       <DebugInformationFormat>None</DebugInformationFormat>
       <BufferSecurityCheck>false</BufferSecurityCheck>
       <AdditionalIncludeDirectories>$(SolutionDir)\zydis\include;$(SolutionDir)\zydis\dependencies\zycore\include;$(SolutionDir)\zydis\msvc</AdditionalIncludeDirectories>
+      <ExceptionHandling>false</ExceptionHandling>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>

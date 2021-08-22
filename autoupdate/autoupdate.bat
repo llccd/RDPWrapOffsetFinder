@@ -53,10 +53,12 @@ findstr /c:"ERROR" %rdpwrap_new_ini% >nul && (
 ) || (
     echo [+] Successfully generated latest version to %rdpwrap_new_ini%.
     net stop UmRdpService
-    net stop termservice
+    sc stop termservice
+    sc config termservice start=disabled
     taskkill /F /FI "MODULES eq termsrv.dll"
     move /Y %rdpwrap_new_ini% %rdpwrap_ini%
     icacls %rdpwrap_ini% /inheritance:e
+    sc config termservice start=demand
     sc start termservice
 )
 exit /b 0
