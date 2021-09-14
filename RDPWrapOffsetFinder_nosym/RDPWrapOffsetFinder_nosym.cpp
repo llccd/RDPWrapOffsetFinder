@@ -3,7 +3,6 @@
 #include <Zydis/Zydis.h>
 
 constexpr const char Query[] = "CDefPolicy::Query";
-constexpr const char Initialize[] = "CSLQuery::Initialize";
 constexpr const char LocalOnly[] = "CSLQuery::IsTerminalTypeLocalOnly";
 constexpr const char SingleSessionEnabled[] = "CSessionArbitrationHelper::IsSingleSessionPerUserEnabled";
 constexpr const char InstanceOfLicense[] = "CEnforcementCore::GetInstanceOfTSLicense ";
@@ -71,7 +70,7 @@ DWORD64 pattenMatch(DWORD64 base, PIMAGE_SECTION_HEADER pSection, const void *st
     return -1;
 }
 
-BOOL searchXref(ZydisDecoder* decoder, DWORD64 base, PRUNTIME_FUNCTION func, DWORD64 target)
+DWORD64 searchXref(ZydisDecoder* decoder, DWORD64 base, PRUNTIME_FUNCTION func, DWORD64 target)
 {
     auto IP = base + func->BeginAddress;
     auto length = (ZyanUSize)func->EndAddress - func->BeginAddress;
@@ -87,7 +86,7 @@ BOOL searchXref(ZydisDecoder* decoder, DWORD64 base, PRUNTIME_FUNCTION func, DWO
             instruction.operands[1].mem.base == ZYDIS_REGISTER_RIP &&
             instruction.operands[1].mem.disp.value + IP == target + base &&
             instruction.operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER)
-            return 1;
+            return IP - base;
     }
 
     return 0;
@@ -291,10 +290,9 @@ int SingleUserPatch(ZydisDecoder* decoder, DWORD64 RVA, DWORD64 base, DWORD64 ta
 
 int main(int argc, char** argv)
 {
-    char szTermsrv[MAX_PATH];
-    if (argc >= 2) lstrcpyA(szTermsrv, argv[1]);
-    else lstrcpyA(szTermsrv + GetSystemDirectoryA(szTermsrv, sizeof(szTermsrv) / sizeof(char)), "\\termsrv.dll");
-    auto hMod = LoadLibraryExA(szTermsrv, NULL, DONT_RESOLVE_DLL_REFERENCES);
+    HMODULE hMod;
+    if (argc >= 2) hMod = LoadLibraryExA(argv[1], NULL, DONT_RESOLVE_DLL_REFERENCES);
+    else hMod = LoadLibraryExW(L"termsrv.dll", NULL, DONT_RESOLVE_DLL_REFERENCES | LOAD_LIBRARY_SEARCH_SYSTEM32);
     if (!hMod) return -1;
     auto base = (size_t)hMod;
     auto pDos = (PIMAGE_DOS_HEADER)base;
@@ -308,7 +306,7 @@ int main(int argc, char** argv)
     auto IsSingleSessionPerUser = pattenMatch(base, rdata, "IsSingleSessionPerUser", sizeof("IsSingleSessionPerUser"));
     if (!memcmp((void*)(base + IsSingleSessionPerUser - 8), "CUtils::", 8)) IsSingleSessionPerUser -= 8;
     auto IsLicenseTypeLocalOnly = pattenMatch(base, rdata, LocalOnly, sizeof(LocalOnly) - 1);
-    auto CSLQuery_Initialize = pattenMatch(base, rdata, Initialize, sizeof(Initialize) - 1);
+    auto bRemoteConnAllowed = pattenMatch(base, rdata, AllowRemote, sizeof(AllowRemote));
 
     auto pImportDirectory = pNT->OptionalHeader.DataDirectory + IMAGE_DIRECTORY_ENTRY_IMPORT;
     auto pImportDescriptor = (PIMAGE_IMPORT_DESCRIPTOR)(base + pImportDirectory->VirtualAddress);
@@ -322,36 +320,25 @@ int main(int argc, char** argv)
     if (!FunctionTableSize) return -3;
 
     DWORD64 CDefPolicy_Query_addr = 0, GetInstanceOfTSLicense_addr = 0, IsSingleSessionPerUserEnabled_addr = 0,
-        IsSingleSessionPerUser_addr = 0, IsLicenseTypeLocalOnly_addr = 0;
+        IsSingleSessionPerUser_addr = 0, IsLicenseTypeLocalOnly_addr = 0, bRemoteConnAllowed_xref;
     PRUNTIME_FUNCTION CSLQuery_Initialize_func = NULL;
 
     ZydisDecoder decoder;
     ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_ADDRESS_WIDTH_64);
 
     for (DWORD i = 0; i < FunctionTableSize; i++) {
-        if (!CDefPolicy_Query_addr && searchXref(&decoder, base, FunctionTable + i, CDefPolicy_Query)) {
-            auto FunctionEntry = backtrace(base, FunctionTable + i);
-            CDefPolicy_Query_addr = FunctionEntry->BeginAddress;
-        }
-        else if (!GetInstanceOfTSLicense_addr && searchXref(&decoder, base, FunctionTable + i, GetInstanceOfTSLicense)) {
-            auto FunctionEntry = backtrace(base, FunctionTable + i);
-            GetInstanceOfTSLicense_addr = FunctionEntry->BeginAddress;
-        }
-        else if (!IsSingleSessionPerUserEnabled_addr && searchXref(&decoder, base, FunctionTable + i, IsSingleSessionPerUserEnabled)) {
-            auto FunctionEntry = backtrace(base, FunctionTable + i);
-            IsSingleSessionPerUserEnabled_addr = FunctionEntry->BeginAddress;
-        }
-        else if (!IsSingleSessionPerUser_addr && searchXref(&decoder, base, FunctionTable + i, IsSingleSessionPerUser)) {
-            auto FunctionEntry = backtrace(base, FunctionTable + i);
-            IsSingleSessionPerUser_addr = FunctionEntry->BeginAddress;
-        }
-        else if (!IsLicenseTypeLocalOnly_addr && searchXref(&decoder, base, FunctionTable + i, IsLicenseTypeLocalOnly)) {
-            auto FunctionEntry = backtrace(base, FunctionTable + i);
-            IsLicenseTypeLocalOnly_addr = FunctionEntry->BeginAddress;
-        }
-        else if (!CSLQuery_Initialize_func && searchXref(&decoder, base, FunctionTable + i, CSLQuery_Initialize)) {
+        if (!CDefPolicy_Query_addr && searchXref(&decoder, base, FunctionTable + i, CDefPolicy_Query))
+            CDefPolicy_Query_addr = backtrace(base, FunctionTable + i)->BeginAddress;
+        else if (!GetInstanceOfTSLicense_addr && searchXref(&decoder, base, FunctionTable + i, GetInstanceOfTSLicense))
+            GetInstanceOfTSLicense_addr = backtrace(base, FunctionTable + i)->BeginAddress;
+        else if (!IsSingleSessionPerUserEnabled_addr && searchXref(&decoder, base, FunctionTable + i, IsSingleSessionPerUserEnabled))
+            IsSingleSessionPerUserEnabled_addr = backtrace(base, FunctionTable + i)->BeginAddress;
+        else if (!IsSingleSessionPerUser_addr && searchXref(&decoder, base, FunctionTable + i, IsSingleSessionPerUser))
+            IsSingleSessionPerUser_addr = backtrace(base, FunctionTable + i)->BeginAddress;
+        else if (!IsLicenseTypeLocalOnly_addr && searchXref(&decoder, base, FunctionTable + i, IsLicenseTypeLocalOnly))
+            IsLicenseTypeLocalOnly_addr = backtrace(base, FunctionTable + i)->BeginAddress;
+        else if (!CSLQuery_Initialize_func && (bRemoteConnAllowed_xref = searchXref(&decoder, base, FunctionTable + i, bRemoteConnAllowed)))
             CSLQuery_Initialize_func = backtrace(base, FunctionTable + i);
-        }
         if (CDefPolicy_Query_addr && GetInstanceOfTSLicense_addr && IsSingleSessionPerUserEnabled_addr &&
             IsSingleSessionPerUser_addr && IsLicenseTypeLocalOnly_addr && CSLQuery_Initialize_func) break;
     }
@@ -387,39 +374,25 @@ int main(int argc, char** argv)
     auto IP = CSLQuery_Initialize_func->BeginAddress + base;
     auto length = (ZyanUSize)CSLQuery_Initialize_func->EndAddress - CSLQuery_Initialize_func->BeginAddress;
     ZydisDecodedInstruction instruction;
-    auto bRemoteConnAllowed = pattenMatch(base, rdata, AllowRemote, sizeof(AllowRemote));
 
     if (hResData->Value.dwFileVersionMS == 0x00060002)
     {
-        while (ZYAN_SUCCESS(ZydisDecoderDecodeBuffer(&decoder, (void*)IP, length, &instruction)))
-        {
+        IP = bRemoteConnAllowed_xref + base;
+
+        while (ZYAN_SUCCESS(ZydisDecoderDecodeBuffer(&decoder, (void*)IP, length, &instruction))) {
             IP += instruction.length;
             length -= instruction.length;
-            if (instruction.operand_count != 2 ||
-                instruction.mnemonic != ZYDIS_MNEMONIC_LEA ||
-                instruction.operands[1].type != ZYDIS_OPERAND_TYPE_MEMORY ||
-                instruction.operands[1].mem.base != ZYDIS_REGISTER_RIP ||
-                instruction.operands[1].mem.disp.has_displacement != ZYAN_TRUE ||
-                instruction.operands[0].type != ZYDIS_OPERAND_TYPE_REGISTER ||
-                instruction.operands[0].reg.value != ZYDIS_REGISTER_RCX ||
-                instruction.operands[1].mem.disp.value + IP - base != bRemoteConnAllowed) continue;
-
-            while (ZYAN_SUCCESS(ZydisDecoderDecodeBuffer(&decoder, (void*)IP, length, &instruction))) {
-                IP += instruction.length;
-                length -= instruction.length;
-                if (instruction.operand_count == 4 && instruction.mnemonic == ZYDIS_MNEMONIC_CALL &&
-                    instruction.operands[0].type == ZYDIS_OPERAND_TYPE_IMMEDIATE &&
-                    instruction.operands[0].imm.is_relative == ZYAN_TRUE &&
-                    instruction.operands[1].type == ZYDIS_OPERAND_TYPE_REGISTER &&
-                    instruction.operands[1].reg.value == ZYDIS_REGISTER_RIP)
-                {
-                    printf("SLPolicyInternal.x64=1\n"
-                        "SLPolicyOffset.x64=%llX\n"
-                        "SLPolicyFunc.x64=New_Win8SL\n", IP + instruction.operands[0].imm.value.u - base);
-                    return 0;
-                } 
-            }
-            break;
+            if (instruction.operand_count == 4 && instruction.mnemonic == ZYDIS_MNEMONIC_CALL &&
+                instruction.operands[0].type == ZYDIS_OPERAND_TYPE_IMMEDIATE &&
+                instruction.operands[0].imm.is_relative == ZYAN_TRUE &&
+                instruction.operands[1].type == ZYDIS_OPERAND_TYPE_REGISTER &&
+                instruction.operands[1].reg.value == ZYDIS_REGISTER_RIP)
+            {
+                printf("SLPolicyInternal.x64=1\n"
+                    "SLPolicyOffset.x64=%llX\n"
+                    "SLPolicyFunc.x64=New_Win8SL\n", IP + instruction.operands[0].imm.value.u - base);
+                return 0;
+            } 
         }
 
         puts("ERROR: SLGetWindowsInformationDWORDWrapper not found");
