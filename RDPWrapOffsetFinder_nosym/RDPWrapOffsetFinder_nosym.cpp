@@ -6,7 +6,7 @@ constexpr const char Query[] = "CDefPolicy::Query";
 constexpr const char Initialize[] = "CSLQuery::Initialize";
 constexpr const char LocalOnly[] = "CSLQuery::IsTerminalTypeLocalOnly";
 constexpr const char SingleSessionEnabled[] = "CSessionArbitrationHelper::IsSingleSessionPerUserEnabled";
-constexpr const char InstanceOfLicense[] = "CEnforcementCore::GetInstanceOfTSLicense";
+constexpr const char InstanceOfLicense[] = "CEnforcementCore::GetInstanceOfTSLicense ";
 
 constexpr const WCHAR AllowRemote[] = L"TerminalServices-RemoteConnectionManager-AllowRemoteConnections";
 constexpr const WCHAR AllowMultipleSessions[] = L"TerminalServices-RemoteConnectionManager-AllowMultipleSessions";
