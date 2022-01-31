@@ -140,8 +140,7 @@ void LocalOnlyPatch(ZydisDecoder *decoder, DWORD64 RVA, DWORD64 base, DWORD64 ta
             instruction.operands[0].type == ZYDIS_OPERAND_TYPE_IMMEDIATE &&
             instruction.operands[0].imm.is_relative == ZYAN_TRUE &&
             instruction.operands[1].type == ZYDIS_OPERAND_TYPE_REGISTER &&
-            (instruction.operands[1].reg.value == ZYDIS_REGISTER_RIP ||
-                instruction.operands[1].reg.value == ZYDIS_REGISTER_EIP) &&
+            instruction.operands[1].reg.value == ZYDIS_REGISTER_RIP &&
             target == IP + instruction.operands[0].imm.value.u)
         {
             if (!ZYAN_SUCCESS(ZydisDecoderDecodeBuffer(decoder, (void*)IP, length, &instruction)) ||

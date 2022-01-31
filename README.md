@@ -1,6 +1,6 @@
 # RDPWrapOffsetFinder
 
-Automatically find offsets needed by rdpwrap.ini
+Automatically find offsets needed by RDPWrap and generate rdpwrap.ini
 
 ## Usage
 
