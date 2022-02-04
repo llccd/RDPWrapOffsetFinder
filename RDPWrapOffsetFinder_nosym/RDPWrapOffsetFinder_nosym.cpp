@@ -80,8 +80,7 @@ DWORD64 searchXref(ZydisDecoder* decoder, DWORD64 base, PRUNTIME_FUNCTION func, 
     {
         IP += instruction.length;
         length -= instruction.length;
-        if (instruction.operand_count == 2 &&
-            instruction.mnemonic == ZYDIS_MNEMONIC_LEA &&
+        if (instruction.mnemonic == ZYDIS_MNEMONIC_LEA &&
             instruction.operands[1].type == ZYDIS_OPERAND_TYPE_MEMORY &&
             instruction.operands[1].mem.base == ZYDIS_REGISTER_RIP &&
             instruction.operands[1].mem.disp.value + IP == target + base &&
@@ -136,7 +135,7 @@ void LocalOnlyPatch(ZydisDecoder *decoder, DWORD64 RVA, DWORD64 base, DWORD64 ta
     {
         IP += instruction.length;
         length -= instruction.length;
-        if (instruction.operand_count == 4 && instruction.mnemonic == ZYDIS_MNEMONIC_CALL &&
+        if (instruction.mnemonic == ZYDIS_MNEMONIC_CALL &&
             instruction.operands[0].type == ZYDIS_OPERAND_TYPE_IMMEDIATE &&
             instruction.operands[0].imm.is_relative == ZYAN_TRUE &&
             instruction.operands[1].type == ZYDIS_OPERAND_TYPE_REGISTER &&
@@ -200,7 +199,7 @@ void DefPolicyPatch(ZydisDecoder* decoder, DWORD64 RVA, DWORD64 base) {
 
     while (ZYAN_SUCCESS(ZydisDecoderDecodeBuffer(decoder, (void*)IP, length, &instruction)))
     {
-        if (instruction.operand_count == 3 && instruction.mnemonic == ZYDIS_MNEMONIC_CMP &&
+        if (instruction.mnemonic == ZYDIS_MNEMONIC_CMP &&
             instruction.operands[0].type == ZYDIS_OPERAND_TYPE_MEMORY &&
             instruction.operands[0].mem.disp.value == 0x63c &&
             instruction.operands[1].type == ZYDIS_OPERAND_TYPE_REGISTER)
@@ -252,7 +251,6 @@ int SingleUserPatch(ZydisDecoder* decoder, DWORD64 RVA, DWORD64 base, DWORD64 ta
         {
             auto jmp_addr = IP + instruction.operands[0].imm.value.u;
             if (!ZYAN_SUCCESS(ZydisDecoderDecodeBuffer(decoder, (void*)jmp_addr, length, &instruction)) ||
-                instruction.operand_count != 2 ||
                 instruction.mnemonic != ZYDIS_MNEMONIC_JMP ||
                 instruction.operands[0].type != ZYDIS_OPERAND_TYPE_MEMORY ||
                 instruction.operands[0].mem.base != ZYDIS_REGISTER_RIP ||
@@ -262,7 +260,7 @@ int SingleUserPatch(ZydisDecoder* decoder, DWORD64 RVA, DWORD64 base, DWORD64 ta
 
             while (ZYAN_SUCCESS(ZydisDecoderDecodeBuffer(decoder, (void*)IP, length, &instruction)))
             {
-                if (instruction.operand_count == 2 && instruction.mnemonic == ZYDIS_MNEMONIC_MOV &&
+                if (instruction.mnemonic == ZYDIS_MNEMONIC_MOV &&
                     instruction.operands[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE &&
                     instruction.operands[1].imm.value.u == 1)
                 {
@@ -270,7 +268,7 @@ int SingleUserPatch(ZydisDecoder* decoder, DWORD64 RVA, DWORD64 base, DWORD64 ta
                         "SingleUserOffset.x64=%llX\n"
                         "SingleUserCode.x64=Zero\n", IP + instruction.raw.imm[0].offset - base);
                     return 1;
-                } else if (instruction.operand_count == 2 && instruction.mnemonic == ZYDIS_MNEMONIC_INC &&
+                } else if (instruction.mnemonic == ZYDIS_MNEMONIC_INC &&
                     instruction.operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER)
                 {
                     printf("SingleUserPatch.x64=1\n"
@@ -381,7 +379,7 @@ int main(int argc, char** argv)
         while (ZYAN_SUCCESS(ZydisDecoderDecodeBuffer(&decoder, (void*)IP, length, &instruction))) {
             IP += instruction.length;
             length -= instruction.length;
-            if (instruction.operand_count == 4 && instruction.mnemonic == ZYDIS_MNEMONIC_CALL &&
+            if (instruction.mnemonic == ZYDIS_MNEMONIC_CALL &&
                 instruction.operands[0].type == ZYDIS_OPERAND_TYPE_IMMEDIATE &&
                 instruction.operands[0].imm.is_relative == ZYAN_TRUE &&
                 instruction.operands[1].type == ZYDIS_OPERAND_TYPE_REGISTER &&
@@ -427,15 +425,14 @@ int main(int argc, char** argv)
         {
             IP += instruction.length;
             length -= instruction.length;
-            if (!*current && instruction.operand_count == 2 && instruction.mnemonic == ZYDIS_MNEMONIC_MOV &&
+            if (!*current && instruction.mnemonic == ZYDIS_MNEMONIC_MOV &&
                 instruction.operands[0].type == ZYDIS_OPERAND_TYPE_MEMORY &&
                 instruction.operands[0].mem.base == ZYDIS_REGISTER_RIP &&
                 instruction.operands[0].mem.disp.has_displacement == ZYAN_TRUE &&
                 instruction.operands[1].type == ZYDIS_OPERAND_TYPE_REGISTER &&
                 instruction.operands[1].reg.value == ZYDIS_REGISTER_EAX)
                 *current = instruction.operands[0].mem.disp.value + IP - base;
-            else if (instruction.operand_count == 2 &&
-                instruction.mnemonic == ZYDIS_MNEMONIC_LEA &&
+            else if (instruction.mnemonic == ZYDIS_MNEMONIC_LEA &&
                 instruction.operands[1].type == ZYDIS_OPERAND_TYPE_MEMORY &&
                 instruction.operands[1].mem.base == ZYDIS_REGISTER_RIP &&
                 instruction.operands[1].mem.disp.has_displacement == ZYAN_TRUE &&
@@ -450,7 +447,7 @@ int main(int argc, char** argv)
                 else if (target == lMaxUserSessions) current = &lMaxUserSessions_addr;
                 else if (target == ulMaxDebugSessions) current = &ulMaxDebugSessions_addr;
             }
-            else if (instruction.operand_count == 2 && instruction.mnemonic == ZYDIS_MNEMONIC_MOV &&
+            else if (instruction.mnemonic == ZYDIS_MNEMONIC_MOV &&
                 instruction.operands[0].type == ZYDIS_OPERAND_TYPE_MEMORY &&
                 instruction.operands[0].mem.base == ZYDIS_REGISTER_RIP &&
                 instruction.operands[0].mem.disp.has_displacement == ZYAN_TRUE &&
@@ -466,20 +463,19 @@ int main(int argc, char** argv)
         {
             IP += instruction.length;
             length -= instruction.length;
-            if (instruction.operand_count == 2 && instruction.mnemonic == ZYDIS_MNEMONIC_JMP &&
+            if (instruction.mnemonic == ZYDIS_MNEMONIC_JMP &&
                 instruction.operands[0].type == ZYDIS_OPERAND_TYPE_IMMEDIATE &&
                 instruction.operands[0].imm.is_relative == ZYAN_TRUE &&
                 instruction.operands[1].type == ZYDIS_OPERAND_TYPE_REGISTER &&
                 instruction.operands[1].reg.value == ZYDIS_REGISTER_RIP)
                 IP += instruction.operands[0].imm.value.u;
-            else if (!*current && instruction.operand_count == 2 && instruction.mnemonic == ZYDIS_MNEMONIC_MOV &&
+            else if (!*current && instruction.mnemonic == ZYDIS_MNEMONIC_MOV &&
                 instruction.operands[0].type == ZYDIS_OPERAND_TYPE_MEMORY &&
                 instruction.operands[0].mem.base == ZYDIS_REGISTER_RIP &&
                 instruction.operands[0].mem.disp.has_displacement == ZYAN_TRUE &&
                 instruction.operands[1].type == ZYDIS_OPERAND_TYPE_REGISTER)
                 *current = instruction.operands[0].mem.disp.value + IP - base;
-            else if (instruction.operand_count == 2 &&
-                instruction.mnemonic == ZYDIS_MNEMONIC_LEA &&
+            else if (instruction.mnemonic == ZYDIS_MNEMONIC_LEA &&
                 instruction.operands[1].type == ZYDIS_OPERAND_TYPE_MEMORY &&
                 instruction.operands[1].mem.base == ZYDIS_REGISTER_RIP &&
                 instruction.operands[1].mem.disp.has_displacement == ZYAN_TRUE &&
@@ -494,7 +490,7 @@ int main(int argc, char** argv)
                 else if (target == lMaxUserSessions) current = &lMaxUserSessions_addr;
                 else if (target == ulMaxDebugSessions) current = &ulMaxDebugSessions_addr;
             }
-            else if (instruction.operand_count == 2 && instruction.mnemonic == ZYDIS_MNEMONIC_MOV &&
+            else if (instruction.mnemonic == ZYDIS_MNEMONIC_MOV &&
                 instruction.operands[0].type == ZYDIS_OPERAND_TYPE_MEMORY &&
                 instruction.operands[0].mem.base == ZYDIS_REGISTER_RIP &&
                 instruction.operands[0].mem.disp.has_displacement == ZYAN_TRUE &&

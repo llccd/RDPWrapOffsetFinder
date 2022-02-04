@@ -24,7 +24,7 @@ void LocalOnlyPatch(ZydisDecoder * decoder, DWORD64 RVA, DWORD64 base, DWORD64 t
     {
         IP += instruction.length;
         length -= instruction.length;
-        if (instruction.operand_count == 4 && instruction.mnemonic == ZYDIS_MNEMONIC_CALL &&
+        if (instruction.mnemonic == ZYDIS_MNEMONIC_CALL &&
             instruction.operands[0].type == ZYDIS_OPERAND_TYPE_IMMEDIATE &&
             instruction.operands[0].imm.is_relative == ZYAN_TRUE &&
             instruction.operands[1].type == ZYDIS_OPERAND_TYPE_REGISTER &&
@@ -64,7 +64,7 @@ void LocalOnlyPatch(ZydisDecoder * decoder, DWORD64 RVA, DWORD64 base, DWORD64 t
             IP += instruction.length;
             length -= instruction.length;
             if (!ZYAN_SUCCESS(ZydisDecoderDecodeBuffer(decoder, (void*)IP, length, &instruction)) ||
-                instruction.mnemonic != ZYDIS_MNEMONIC_JZ || instruction.operand_count != 3 ||
+                instruction.mnemonic != ZYDIS_MNEMONIC_JZ ||
                 instruction.operands[0].type != ZYDIS_OPERAND_TYPE_IMMEDIATE ||
                 instruction.operands[0].imm.is_relative != ZYAN_TRUE ||
                 instruction.operands[1].type != ZYDIS_OPERAND_TYPE_REGISTER ||
@@ -95,7 +95,7 @@ void DefPolicyPatch(ZydisDecoder* decoder, DWORD64 RVA, DWORD64 base) {
 
     while (ZYAN_SUCCESS(ZydisDecoderDecodeBuffer(decoder, (void*)IP, length, &instruction)))
     {
-        if (instruction.operand_count == 3 && instruction.mnemonic == ZYDIS_MNEMONIC_CMP) 
+        if (instruction.mnemonic == ZYDIS_MNEMONIC_CMP) 
         {
             const char* reg1;
             const char* reg2;
@@ -155,7 +155,7 @@ int SingleUserPatch(ZydisDecoder* decoder, DWORD64 RVA, DWORD64 base, DWORD64 ta
     {
         IP += instruction.length;
         length -= instruction.length;
-        if (instruction.operand_count == 4 && instruction.mnemonic == ZYDIS_MNEMONIC_CALL &&
+        if (instruction.mnemonic == ZYDIS_MNEMONIC_CALL &&
             instruction.operands[0].type == ZYDIS_OPERAND_TYPE_IMMEDIATE &&
             instruction.operands[0].imm.is_relative == ZYAN_TRUE &&
             instruction.operands[1].type == ZYDIS_OPERAND_TYPE_REGISTER &&
@@ -165,7 +165,7 @@ int SingleUserPatch(ZydisDecoder* decoder, DWORD64 RVA, DWORD64 base, DWORD64 ta
         {
             while (ZYAN_SUCCESS(ZydisDecoderDecodeBuffer(decoder, (void*)IP, length, &instruction)))
             {
-                if (instruction.operand_count == 2 && instruction.mnemonic == ZYDIS_MNEMONIC_MOV &&
+                if (instruction.mnemonic == ZYDIS_MNEMONIC_MOV &&
                     instruction.operands[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE &&
                     instruction.operands[1].imm.value.u == 1)
                 {
@@ -177,7 +177,7 @@ int SingleUserPatch(ZydisDecoder* decoder, DWORD64 RVA, DWORD64 base, DWORD64 ta
                         "SingleUserOffset.x86=%llX\n"
                         "SingleUserCode.x86=Zero\n", IP + instruction.raw.imm[0].offset - base);
                     return 1;
-                } else if (instruction.operand_count == 2 && instruction.mnemonic == ZYDIS_MNEMONIC_INC &&
+                } else if (instruction.mnemonic == ZYDIS_MNEMONIC_INC &&
                     instruction.operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER)
                 {
                     printf(decoder->address_width == ZYDIS_ADDRESS_WIDTH_64
