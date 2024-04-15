@@ -279,7 +279,18 @@ int SingleUserPatch(ZydisDecoder* decoder, DWORD64 RVA, DWORD64 base, DWORD64 ta
                         "SingleUserOffset.x64=%llX\n"
                         "SingleUserCode.x64=nop\n", IP - base);
                     return 1;
+                } else if (instruction.mnemonic == ZYDIS_MNEMONIC_LEA &&
+                    operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
+                    operands[0].reg.value >= ZYDIS_REGISTER_EAX && operands[0].reg.value < ZYDIS_REGISTER_RAX &&
+                    operands[1].type == ZYDIS_OPERAND_TYPE_MEMORY &&
+                    operands[1].mem.base >= ZYDIS_REGISTER_RAX && operands[1].mem.base <= ZYDIS_REGISTER_R15 &&
+                    operands[1].mem.disp.value == 1) {
+                    printf("SingleUserPatch.x64=1\n"
+                        "SingleUserOffset.x64=%llX\n"
+                        "SingleUserCode.x64=Zero\n", IP + instruction.raw.disp.offset - base);
+                    return 1;
                 }
+
                 IP += instruction.length;
                 length -= instruction.length;
             }

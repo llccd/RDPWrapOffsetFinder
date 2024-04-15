@@ -14,10 +14,10 @@ FOR %%f IN (*_x64.dll) DO (
 	..\x64\Release\RDPWrapOffsetFinder.exe %%f > 1.txt
 	..\x64\Release\RDPWrapOffsetFinder_nosymbol.exe %%f > 2.txt
 	fc 1.txt 2.txt > nul
-	if errorlevel 0 (
-	echo Test1: OK
-	) ELSE (
+	if errorlevel 1 (
 	echo Test1: NG
+	) ELSE (
+	echo Test1: OK
 	)
 	findstr ERROR 2.txt
 	if errorlevel 1 (
