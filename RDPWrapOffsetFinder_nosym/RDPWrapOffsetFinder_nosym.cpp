@@ -196,12 +196,16 @@ void LocalOnlyPatch(ZydisDecoder *decoder, DWORD64 RVA, DWORD64 base, DWORD64 ta
 void DefPolicyPatch(ZydisDecoder* decoder, DWORD64 RVA, DWORD64 base) {
     ZyanUSize length = 128;
     ZyanUSize lastLength = 0;
+    ZyanUSize instLength;
     ZydisDecodedInstruction instruction;
     ZydisDecodedOperand operands[ZYDIS_MAX_OPERAND_COUNT];
     auto IP = RVA + base;
+    auto mov_base = ZYDIS_REGISTER_NONE;
+    auto mov_target = ZYDIS_REGISTER_NONE;
 
     while (ZYAN_SUCCESS(ZydisDecoderDecodeFull(decoder, (void*)IP, length, &instruction, operands)))
     {
+        instLength = instruction.length;
         if (instruction.mnemonic == ZYDIS_MNEMONIC_CMP &&
             operands[0].type == ZYDIS_OPERAND_TYPE_MEMORY &&
             operands[0].mem.disp.value == 0x63c &&
@@ -211,8 +215,53 @@ void DefPolicyPatch(ZydisDecoder* decoder, DWORD64 RVA, DWORD64 base) {
             const char* reg2 = ZydisRegisterGetString(operands[0].mem.base);
             const char* jmp = "";
 
-            length -= instruction.length;
-            if (!ZYAN_SUCCESS(ZydisDecoderDecodeInstruction(decoder, (ZydisDecoderContext*)0, (void*)(IP + instruction.length), length, &instruction)))
+            if (!ZYAN_SUCCESS(ZydisDecoderDecodeInstruction(decoder, (ZydisDecoderContext*)0, (void*)(IP + instLength), length - instLength, &instruction)))
+                break;
+
+            if (instruction.mnemonic == ZYDIS_MNEMONIC_JNZ)
+            {
+                IP -= lastLength;
+                jmp = "_jmp";
+            }
+            else if (instruction.mnemonic != ZYDIS_MNEMONIC_JZ && instruction.mnemonic != ZYDIS_MNEMONIC_POP)
+                break;
+
+            printf("DefPolicyPatch.x64=1\n"
+                "DefPolicyOffset.x64=%llX\n"
+                "DefPolicyCode.x64=CDefPolicy_Query_%s_%s%s\n", IP - base, reg1, reg2, jmp);
+            return;
+        }
+        else if (!mov_base && instruction.mnemonic == ZYDIS_MNEMONIC_MOV &&
+            operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
+            operands[1].type == ZYDIS_OPERAND_TYPE_MEMORY &&
+            operands[1].mem.disp.value == 0x63c)
+        {
+            mov_base = operands[1].mem.base;
+            mov_target = operands[0].reg.value;
+        }
+        else if (instruction.mnemonic == ZYDIS_MNEMONIC_MOV &&
+            operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
+            operands[1].type == ZYDIS_OPERAND_TYPE_MEMORY &&
+            operands[1].mem.base == mov_base &&
+            operands[1].mem.disp.value == 0x638)
+        {
+            auto mov_target2 = operands[0].reg.value;
+            const char* reg1 = ZydisRegisterGetString(mov_target2);
+            const char* reg2 = ZydisRegisterGetString(operands[1].mem.base);
+            const char* jmp = "";
+
+            auto offset = instLength;
+            while (ZYAN_SUCCESS(ZydisDecoderDecodeFull(decoder, (void*)(IP + offset), length - offset, &instruction, operands))) {
+                offset += instruction.length;
+                if (instruction.mnemonic == ZYDIS_MNEMONIC_CMP &&
+                    operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
+                    operands[1].type == ZYDIS_OPERAND_TYPE_REGISTER &&
+                    (operands[0].reg.value == mov_target && operands[1].reg.value == mov_target2 ||
+                        operands[0].reg.value == mov_target2 && operands[1].reg.value == mov_target))
+                    break;
+            }
+
+            if (!ZYAN_SUCCESS(ZydisDecoderDecodeInstruction(decoder, (ZydisDecoderContext*)0, (void*)(IP + offset), length - offset, &instruction)))
                 break;
 
             if (instruction.mnemonic == ZYDIS_MNEMONIC_JNZ)
@@ -229,9 +278,9 @@ void DefPolicyPatch(ZydisDecoder* decoder, DWORD64 RVA, DWORD64 base) {
             return;
         }
 
-        IP += instruction.length;
-        length -= instruction.length;
-        lastLength = instruction.length;
+        IP += instLength;
+        length -= instLength;
+        lastLength = instLength;
     }
     puts("ERROR: DefPolicyPatch not found");
 }
