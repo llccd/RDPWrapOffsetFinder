@@ -266,7 +266,7 @@ int SingleUserPatch(ZydisDecoder* decoder, DWORD64 RVA, DWORD64 base, DWORD64 ta
 int main(int argc, char** argv)
 {
     auto hProcess = GetCurrentProcess();
-    char szTermsrv[MAX_PATH];
+    char szTermsrv[MAX_PATH + 1];
     SymSetOptions(SYMOPT_EXACT_SYMBOLS | SYMOPT_ALLOW_ABSOLUTE_SYMBOLS | SYMOPT_DEBUG | SYMOPT_UNDNAME);
     LPCWSTR symPath = NULL;
     GetEnvironmentVariableW(L"_NT_SYMBOL_PATH", NULL, 0);
@@ -274,7 +274,14 @@ int main(int argc, char** argv)
     if (!SymInitializeW(hProcess, symPath, FALSE)) return -1;
     if (argc >= 2) lstrcpyA(szTermsrv, argv[1]);
     else lstrcpyA(szTermsrv + GetSystemDirectoryA(szTermsrv, sizeof(szTermsrv) / sizeof(char)), "\\termsrv.dll");
+#ifndef _WIN64
+    PVOID OldValue;
+    Wow64DisableWow64FsRedirection(&OldValue);
+#endif // _WIN64
     auto hMod = LoadLibraryExA(szTermsrv, NULL, LOAD_LIBRARY_AS_DATAFILE);
+#ifndef _WIN64
+    Wow64RevertWow64FsRedirection(OldValue);
+#endif // _WIN64
     if (!hMod) return -2;
     auto base = (size_t)hMod & ~3;
     auto pDos = (PIMAGE_DOS_HEADER)(base);
@@ -290,8 +297,20 @@ int main(int argc, char** argv)
         ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LONG_COMPAT_32, ZYDIS_STACK_WIDTH_32);
         arch = "x86";
     }
-
-    if (!SymLoadModuleEx(hProcess, NULL, szTermsrv, NULL, 0, 0, NULL, 0)) return -3;
+    
+    SYMSRV_INDEX_INFO Info = { sizeof(SYMSRV_INDEX_INFO) };
+#ifndef _WIN64
+    Wow64DisableWow64FsRedirection(&OldValue);
+#endif // _WIN64
+    if (!SymSrvGetFileIndexInfo(szTermsrv, &Info, 0)) return -6;
+#ifndef _WIN64
+    Wow64RevertWow64FsRedirection(OldValue);
+#endif // _WIN64
+    if (!SymFindFileInPath(hProcess, NULL, Info.pdbfile, &Info.guid, Info.age, 0, SSRVOPT_GUIDPTR, (PSTR)&szTermsrv, NULL, NULL)) {
+        if (GetLastError() == ERROR_FILE_NOT_FOUND) puts("Symbol not found");
+        return -7;
+    }
+    if (!SymLoadModuleEx(hProcess, NULL, szTermsrv, NULL, pNT->OptionalHeader.ImageBase, pNT->OptionalHeader.SizeOfImage, NULL, 0)) return -3;
 
     auto hResInfo = FindResourceW(hMod, MAKEINTRESOURCEW(1), MAKEINTRESOURCEW(16));
     if (!hResInfo) return -4;
