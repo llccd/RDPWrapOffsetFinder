@@ -198,12 +198,13 @@ out:
     puts("ERROR: DefPolicyPatch patten not found");
 }
 
-int SingleUserPatch(ZydisDecoder* decoder, DWORD64 RVA, DWORD64 base, DWORD64 target) {
-    ZyanUSize length = 128;
+int SingleUserPatch(ZydisDecoder* decoder, DWORD64 RVA, DWORD64 base, DWORD64 target, DWORD64 target2) {
+    ZyanUSize length = 256;
     ZydisDecodedInstruction instruction;
     ZydisDecodedOperand operands[ZYDIS_MAX_OPERAND_COUNT];
     auto IP = RVA + base;
     target += base;
+    target2 += base;
 
     while (ZYAN_SUCCESS(ZydisDecoderDecodeFull(decoder, (void*)IP, length, &instruction, operands)))
     {
@@ -219,40 +220,47 @@ int SingleUserPatch(ZydisDecoder* decoder, DWORD64 RVA, DWORD64 base, DWORD64 ta
         {
             while (ZYAN_SUCCESS(ZydisDecoderDecodeFull(decoder, (void*)IP, length, &instruction, operands)))
             {
-                if (instruction.mnemonic == ZYDIS_MNEMONIC_MOV &&
-                    operands[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE &&
-                    operands[1].imm.value.u == 1)
-                {
-                    printf(decoder->stack_width == ZYDIS_STACK_WIDTH_64
-                        ? "SingleUserPatch.x64=1\n"
-                        "SingleUserOffset.x64=%llX\n"
-                        "SingleUserCode.x64=Zero\n"
-                        : "SingleUserPatch.x86=1\n"
-                        "SingleUserOffset.x86=%llX\n"
-                        "SingleUserCode.x86=Zero\n", IP + instruction.raw.imm[0].offset - base);
-                    return 1;
-                } else if (instruction.mnemonic == ZYDIS_MNEMONIC_INC &&
-                    operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER)
-                {
-                    printf(decoder->stack_width == ZYDIS_STACK_WIDTH_64
-                        ? "SingleUserPatch.x64=1\n"
-                        "SingleUserOffset.x64=%llX\n"
-                        "SingleUserCode.x64=nop\n"
-                        : "SingleUserPatch.x86=1\n"
-                        "SingleUserOffset.x86=%llX\n"
-                        "SingleUserCode.x86=nop\n", IP - base);
-                    return 1;
-                } else if (decoder->stack_width == ZYDIS_STACK_WIDTH_64 &&
-                    instruction.mnemonic == ZYDIS_MNEMONIC_LEA &&
-                    operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
-                    operands[0].reg.value >= ZYDIS_REGISTER_EAX && operands[0].reg.value < ZYDIS_REGISTER_RAX &&
-                    operands[1].type == ZYDIS_OPERAND_TYPE_MEMORY &&
-                    operands[1].mem.base >= ZYDIS_REGISTER_RAX && operands[1].mem.base <= ZYDIS_REGISTER_R15 &&
-                    operands[1].mem.disp.value == 1) {
-                    printf("SingleUserPatch.x64=1\n"
-                        "SingleUserOffset.x64=%llX\n"
-                        "SingleUserCode.x64=Zero\n", IP + instruction.raw.disp.offset - base);
-                    return 1;
+                if (decoder->stack_width == ZYDIS_STACK_WIDTH_64) {
+                    if (instruction.mnemonic == ZYDIS_MNEMONIC_CALL &&
+                        instruction.length >= 5 && instruction.length <= 7 &&
+                        operands[0].type == ZYDIS_OPERAND_TYPE_MEMORY &&
+                        operands[0].mem.base == ZYDIS_REGISTER_RIP &&
+                        operands[0].mem.disp.value + IP + instruction.length == target2) {
+                        printf("SingleUserPatch.x64=1\n"
+                            "SingleUserOffset.x64=%llX\n"
+                            "SingleUserCode.x64=mov_eax_1_nop_%d\n", IP - base, instruction.length - 5);
+                        return 1;
+                    }
+                    if (decoder->stack_width == ZYDIS_STACK_WIDTH_64 && instruction.mnemonic == ZYDIS_MNEMONIC_CMP &&
+                        instruction.length <= 8 && operands[0].type == ZYDIS_OPERAND_TYPE_MEMORY &&
+                        (operands[0].mem.base == ZYDIS_REGISTER_RBP || operands[0].mem.base == ZYDIS_REGISTER_RSP) &&
+                        (operands[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE && operands[1].imm.value.u == 1 ||
+                            operands[1].type == ZYDIS_OPERAND_TYPE_REGISTER)) {
+                        printf("SingleUserPatch.x64=1\n"
+                            "SingleUserOffset.x64=%llX\n"
+                            "SingleUserCode.x64=nop_%d\n", IP - base, instruction.length);
+                        return 1;
+                    }
+                }
+                else {
+                    if (instruction.mnemonic == ZYDIS_MNEMONIC_CALL &&
+                        instruction.length >= 5 && instruction.length <= 7 &&
+                        operands[0].type == ZYDIS_OPERAND_TYPE_MEMORY &&
+                        operands[0].mem.segment == ZYDIS_REGISTER_DS &&
+                        operands[0].mem.disp.value + base == target2 + 0x10000000) {
+                        printf("SingleUserPatch.x86=1\n"
+                            "SingleUserOffset.x86=%llX\n"
+                            "SingleUserCode.x86=pop_eax_add_esp_12_nop_%d\n", IP - base, instruction.length - 4);
+                        return 1;
+                    }
+                    if (instruction.mnemonic == ZYDIS_MNEMONIC_CMP && instruction.length <= 8 &&
+                        operands[0].type == ZYDIS_OPERAND_TYPE_MEMORY && operands[0].mem.base == ZYDIS_REGISTER_EBP &&
+                        operands[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE && operands[1].imm.value.u == 1) {
+                        printf("SingleUserPatch.x86=1\n"
+                            "SingleUserOffset.x86=%llX\n"
+                            "SingleUserCode.x86=nop_%d\n", IP - base, instruction.length);
+                        return 1;
+                    }
                 }
                 IP += instruction.length;
                 length -= instruction.length;
@@ -267,7 +275,7 @@ int main(int argc, char** argv)
 {
     auto hProcess = GetCurrentProcess();
     char szTermsrv[MAX_PATH + 1];
-    SymSetOptions(SYMOPT_EXACT_SYMBOLS | SYMOPT_ALLOW_ABSOLUTE_SYMBOLS | SYMOPT_DEBUG | SYMOPT_UNDNAME);
+    SymSetOptions(SYMOPT_DEBUG | SYMOPT_PUBLICS_ONLY);
     LPCWSTR symPath = NULL;
     GetEnvironmentVariableW(L"_NT_SYMBOL_PATH", NULL, 0);
     if (GetLastError() == ERROR_ENVVAR_NOT_FOUND) symPath = L"cache*;srv*https://msdl.microsoft.com/download/symbols";
@@ -324,13 +332,18 @@ int main(int argc, char** argv)
     printf("[%hu.%hu.%hu.%hu]\n", HIWORD(hResData->Value.dwFileVersionMS), LOWORD(hResData->Value.dwFileVersionMS),
         HIWORD(hResData->Value.dwFileVersionLS), LOWORD(hResData->Value.dwFileVersionLS));
 
+    DWORD64 VerifyVersion_addr = -1;
+    if (SymFromNameW(hProcess, L"__imp_VerifyVersionInfoW", &symbol) || SymFromNameW(hProcess, L"__imp__VerifyVersionInfoW@16", &symbol))
+        VerifyVersion_addr = symbol.Address - symbol.ModBase;
+
+    SymSetOptions(SYMOPT_DEBUG | SYMOPT_UNDNAME);
     if (SymFromNameW(hProcess, L"memset", &symbol) || SymFromNameW(hProcess, L"_memset", &symbol))
     {
         auto target = symbol.Address - symbol.ModBase;
         if (SymFromNameW(hProcess, L"CSessionArbitrationHelper::IsSingleSessionPerUserEnabled", &symbol) &&
-            SingleUserPatch(&decoder, symbol.Address - symbol.ModBase, base, target));
+            SingleUserPatch(&decoder, symbol.Address - symbol.ModBase, base, target, VerifyVersion_addr));
         else if (SymFromNameW(hProcess, L"CUtils::IsSingleSessionPerUser", &symbol))
-            if(!SingleUserPatch(&decoder, symbol.Address - symbol.ModBase, base, target))
+            if(!SingleUserPatch(&decoder, symbol.Address - symbol.ModBase, base, target, VerifyVersion_addr))
                 puts("ERROR: SingleUserPatch not found");
     }
 

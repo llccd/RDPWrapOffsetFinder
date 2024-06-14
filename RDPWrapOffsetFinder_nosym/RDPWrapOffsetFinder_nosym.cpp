@@ -285,12 +285,13 @@ void DefPolicyPatch(ZydisDecoder* decoder, DWORD64 RVA, DWORD64 base) {
     puts("ERROR: DefPolicyPatch not found");
 }
 
-int SingleUserPatch(ZydisDecoder* decoder, DWORD64 RVA, DWORD64 base, DWORD64 target) {
-    ZyanUSize length = 128;
+int SingleUserPatch(ZydisDecoder* decoder, DWORD64 RVA, DWORD64 base, DWORD64 target, DWORD64 target2) {
+    ZyanUSize length = 256;
     ZydisDecodedInstruction instruction;
     ZydisDecodedOperand operands[ZYDIS_MAX_OPERAND_COUNT];
     auto IP = RVA + base;
     target += base;
+    target2 += base;
 
     while (ZYAN_SUCCESS(ZydisDecoderDecodeFull(decoder, (void*)IP, length, &instruction, operands)))
     {
@@ -313,33 +314,26 @@ int SingleUserPatch(ZydisDecoder* decoder, DWORD64 RVA, DWORD64 base, DWORD64 ta
 
             while (ZYAN_SUCCESS(ZydisDecoderDecodeFull(decoder, (void*)IP, length, &instruction, operands)))
             {
-                if (instruction.mnemonic == ZYDIS_MNEMONIC_MOV &&
-                    operands[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE &&
-                    operands[1].imm.value.u == 1)
-                {
+                if (instruction.mnemonic == ZYDIS_MNEMONIC_CALL &&
+                    instruction.length >= 5 && instruction.length <= 7 &&
+                    operands[0].type == ZYDIS_OPERAND_TYPE_MEMORY &&
+                    operands[0].mem.base == ZYDIS_REGISTER_RIP &&
+                    operands[0].mem.disp.value + IP + instruction.length == target2) {
                     printf("SingleUserPatch.x64=1\n"
                         "SingleUserOffset.x64=%llX\n"
-                        "SingleUserCode.x64=Zero\n", IP + instruction.raw.imm[0].offset - base);
-                    return 1;
-                } else if (instruction.mnemonic == ZYDIS_MNEMONIC_INC &&
-                    operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER)
-                {
-                    printf("SingleUserPatch.x64=1\n"
-                        "SingleUserOffset.x64=%llX\n"
-                        "SingleUserCode.x64=nop\n", IP - base);
-                    return 1;
-                } else if (instruction.mnemonic == ZYDIS_MNEMONIC_LEA &&
-                    operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
-                    operands[0].reg.value >= ZYDIS_REGISTER_EAX && operands[0].reg.value < ZYDIS_REGISTER_RAX &&
-                    operands[1].type == ZYDIS_OPERAND_TYPE_MEMORY &&
-                    operands[1].mem.base >= ZYDIS_REGISTER_RAX && operands[1].mem.base <= ZYDIS_REGISTER_R15 &&
-                    operands[1].mem.disp.value == 1) {
-                    printf("SingleUserPatch.x64=1\n"
-                        "SingleUserOffset.x64=%llX\n"
-                        "SingleUserCode.x64=Zero\n", IP + instruction.raw.disp.offset - base);
+                        "SingleUserCode.x64=mov_eax_1_nop_%d\n", IP - base, instruction.length - 5);
                     return 1;
                 }
-
+                else if (instruction.mnemonic == ZYDIS_MNEMONIC_CMP &&
+                    instruction.length <= 8 && operands[0].type == ZYDIS_OPERAND_TYPE_MEMORY &&
+                    (operands[0].mem.base == ZYDIS_REGISTER_RBP || operands[0].mem.base == ZYDIS_REGISTER_RSP) &&
+                    (operands[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE && operands[1].imm.value.u == 1 ||
+                        operands[1].type == ZYDIS_OPERAND_TYPE_REGISTER)) {
+                    printf("SingleUserPatch.x64=1\n"
+                        "SingleUserOffset.x64=%llX\n"
+                        "SingleUserCode.x64=nop_%d\n", IP - base, instruction.length);
+                    return 1;
+                }
                 IP += instruction.length;
                 length -= instruction.length;
             }
@@ -371,9 +365,14 @@ int main(int argc, char** argv)
 
     auto pImportDirectory = pNT->OptionalHeader.DataDirectory + IMAGE_DIRECTORY_ENTRY_IMPORT;
     auto pImportDescriptor = (PIMAGE_IMPORT_DESCRIPTOR)(base + pImportDirectory->VirtualAddress);
-    pImportDescriptor = findImportImage(pImportDescriptor, base, "msvcrt.dll");
-    if (!pImportDescriptor) return -2;
-    auto memset_addr = findImportFunction(pImportDescriptor, base, "memset");
+    auto pImportImage = findImportImage(pImportDescriptor, base, "msvcrt.dll");
+    if (!pImportImage) return -2;
+    auto memset_addr = findImportFunction(pImportImage, base, "memset");
+    
+    DWORD64 VerifyVersion_addr = -1;
+    pImportImage = findImportImage(pImportDescriptor, base, "api-ms-win-core-kernel32-legacy-l1-1-1.dll");
+    if (!pImportImage) pImportImage = findImportImage(pImportDescriptor, base, "KERNEL32.dll");
+    if (pImportImage) VerifyVersion_addr = findImportFunction(pImportImage, base, "VerifyVersionInfoW");
     
     auto pExceptionDirectory = pNT->OptionalHeader.DataDirectory + IMAGE_DIRECTORY_ENTRY_EXCEPTION;
     auto FunctionTable = (PRUNTIME_FUNCTION)(base + pExceptionDirectory->VirtualAddress);
@@ -415,9 +414,9 @@ int main(int argc, char** argv)
     if (memset_addr)
     {
         if (IsSingleSessionPerUserEnabled_addr &&
-            SingleUserPatch(&decoder, IsSingleSessionPerUserEnabled_addr, base, memset_addr));
+            SingleUserPatch(&decoder, IsSingleSessionPerUserEnabled_addr, base, memset_addr, VerifyVersion_addr));
         else if (IsSingleSessionPerUser_addr)
-            if(!SingleUserPatch(&decoder, IsSingleSessionPerUser_addr, base, memset_addr))
+            if(!SingleUserPatch(&decoder, IsSingleSessionPerUser_addr, base, memset_addr, VerifyVersion_addr))
                 puts("ERROR: SingleUserPatch not found");
     }
 
