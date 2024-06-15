@@ -496,14 +496,14 @@ int main(int argc, char** argv)
             if (!*current && instruction.mnemonic == ZYDIS_MNEMONIC_MOV &&
                 operands[0].type == ZYDIS_OPERAND_TYPE_MEMORY &&
                 operands[0].mem.base == ZYDIS_REGISTER_RIP &&
-                operands[0].mem.disp.has_displacement == ZYAN_TRUE &&
+                operands[0].mem.disp.size != 0 &&
                 operands[1].type == ZYDIS_OPERAND_TYPE_REGISTER &&
                 operands[1].reg.value == ZYDIS_REGISTER_EAX)
                 *current = operands[0].mem.disp.value + IP - base;
             else if (instruction.mnemonic == ZYDIS_MNEMONIC_LEA &&
                 operands[1].type == ZYDIS_OPERAND_TYPE_MEMORY &&
                 operands[1].mem.base == ZYDIS_REGISTER_RIP &&
-                operands[1].mem.disp.has_displacement == ZYAN_TRUE &&
+                operands[1].mem.disp.size != 0 &&
                 operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
                 operands[0].reg.value == ZYDIS_REGISTER_RCX)
             {
@@ -518,7 +518,7 @@ int main(int argc, char** argv)
             else if (instruction.mnemonic == ZYDIS_MNEMONIC_MOV &&
                 operands[0].type == ZYDIS_OPERAND_TYPE_MEMORY &&
                 operands[0].mem.base == ZYDIS_REGISTER_RIP &&
-                operands[0].mem.disp.has_displacement == ZYAN_TRUE &&
+                operands[0].mem.disp.size != 0 &&
                 operands[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE &&
                 operands[1].imm.value.u == 1) {
                 bInitialized_addr = operands[0].mem.disp.value + IP - base;
@@ -540,13 +540,13 @@ int main(int argc, char** argv)
             else if (!*current && instruction.mnemonic == ZYDIS_MNEMONIC_MOV &&
                 operands[0].type == ZYDIS_OPERAND_TYPE_MEMORY &&
                 operands[0].mem.base == ZYDIS_REGISTER_RIP &&
-                operands[0].mem.disp.has_displacement == ZYAN_TRUE &&
+                operands[0].mem.disp.size != 0 &&
                 operands[1].type == ZYDIS_OPERAND_TYPE_REGISTER)
                 *current = operands[0].mem.disp.value + IP - base;
             else if (instruction.mnemonic == ZYDIS_MNEMONIC_LEA &&
                 operands[1].type == ZYDIS_OPERAND_TYPE_MEMORY &&
                 operands[1].mem.base == ZYDIS_REGISTER_RIP &&
-                operands[1].mem.disp.has_displacement == ZYAN_TRUE &&
+                operands[1].mem.disp.size != 0 &&
                 operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
                 operands[0].reg.value == ZYDIS_REGISTER_RDX)
             {
@@ -561,7 +561,7 @@ int main(int argc, char** argv)
             else if (instruction.mnemonic == ZYDIS_MNEMONIC_MOV &&
                 operands[0].type == ZYDIS_OPERAND_TYPE_MEMORY &&
                 operands[0].mem.base == ZYDIS_REGISTER_RIP &&
-                operands[0].mem.disp.has_displacement == ZYAN_TRUE &&
+                operands[0].mem.disp.size != 0 &&
                 operands[1].type == ZYDIS_OPERAND_TYPE_REGISTER &&
                 operands[1].reg.value == ZYDIS_REGISTER_EAX)
                 bInitialized_addr = operands[0].mem.disp.value + IP - base;
