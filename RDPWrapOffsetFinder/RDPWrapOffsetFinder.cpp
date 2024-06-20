@@ -32,7 +32,11 @@ void LocalOnlyPatch(ZydisDecoder * decoder, DWORD64 RVA, DWORD64 base, DWORD64 t
             (operands[1].reg.value == ZYDIS_REGISTER_RIP ||
                 operands[1].reg.value == ZYDIS_REGISTER_EIP) &&
             target == IP + operands[0].imm.value.u)
-        {
+        {   
+            while (ZYAN_SUCCESS(ZydisDecoderDecodeFull(decoder, (void*)IP, length, &instruction, operands)) && instruction.mnemonic == ZYDIS_MNEMONIC_MOV) {
+                IP += instruction.length;
+                length -= instruction.length;
+            }
             if (!ZYAN_SUCCESS(ZydisDecoderDecodeInstruction(decoder, (ZydisDecoderContext*)0, (void*)IP, length, &instruction)) ||
                 instruction.mnemonic != ZYDIS_MNEMONIC_TEST) break;
 
