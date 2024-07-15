@@ -488,7 +488,7 @@ int main(int argc, char** argv)
         bMultimonAllowed_addr = 0, lMaxUserSessions_addr = 0, ulMaxDebugSessions_addr = 0, bInitialized_addr = 0;
     auto current = &bServerSku_addr;
 
-    if (length > 100)
+    if (length > 0x100)
         while (ZYAN_SUCCESS(ZydisDecoderDecodeFull(&decoder, (void*)IP, length, &instruction, operands)))
         {
             IP += instruction.length;
@@ -563,7 +563,8 @@ int main(int argc, char** argv)
                 operands[0].mem.base == ZYDIS_REGISTER_RIP &&
                 operands[0].mem.disp.size != 0 &&
                 operands[1].type == ZYDIS_OPERAND_TYPE_REGISTER &&
-                operands[1].reg.value == ZYDIS_REGISTER_EAX)
+                (operands[1].reg.value == ZYDIS_REGISTER_EAX ||
+                    operands[1].reg.value == ZYDIS_REGISTER_ECX))
                 bInitialized_addr = operands[0].mem.disp.value + IP - base;
             else if (instruction.mnemonic == ZYDIS_MNEMONIC_RET)
                 break;
