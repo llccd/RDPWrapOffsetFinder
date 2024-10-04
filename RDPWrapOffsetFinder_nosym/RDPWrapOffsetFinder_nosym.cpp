@@ -119,17 +119,6 @@ public:
     }
 };
 
-PIMAGE_SECTION_HEADER findSection(PIMAGE_NT_HEADERS64 pNT, const char* str)
-{
-    auto pSection = IMAGE_FIRST_SECTION(pNT);
-
-    for (size_t i = 0; i < pNT->FileHeader.NumberOfSections; i++)
-        if (CSTR_EQUAL == CompareStringA(LOCALE_INVARIANT, 0, (char*)pSection[i].Name, -1, str, -1))
-            return pSection + i;
-
-    return NULL;
-}
-
 size_t pattenMatch(size_t base, PIMAGE_SECTION_HEADER pSection, const void *str, size_t size)
 {
     size_t rdata = base + pSection->VirtualAddress;
@@ -222,21 +211,45 @@ int main(int argc, char** argv)
     PVOID OldValue;
     Wow64DisableWow64FsRedirection(&OldValue);
 #endif // _WIN64
-    auto hFile = CreateFileA(szTermsrv, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    auto hMod = LoadLibraryExA(szTermsrv, NULL, LOAD_LIBRARY_AS_DATAFILE);
 #ifndef _WIN64
     Wow64RevertWow64FsRedirection(OldValue);
 #endif // _WIN64
-    if (hFile == INVALID_HANDLE_VALUE) return -1;
-    auto hMap = CreateFileMapping(hFile, NULL, PAGE_READONLY | SEC_IMAGE_NO_EXECUTE, 0, 0, NULL);
-    if (!hMap) return -6;
-    auto base = (size_t)MapViewOfFile(hMap, FILE_MAP_READ, 0, 0, 0);
-    if (!base) return -7;
-    auto pDos = (PIMAGE_DOS_HEADER)base;
-    auto pNT = (PIMAGE_NT_HEADERS64)(base + pDos->e_lfanew);
-    auto text = findSection(pNT, ".text");
-    auto rdata = findSection(pNT, ".rdata");
+    if (!hMod) return -1;
+    auto base2 = (size_t)hMod & ~3;
+    auto pDos = (PIMAGE_DOS_HEADER)base2;
+    auto pNT = (PIMAGE_NT_HEADERS64)(base2 + pDos->e_lfanew);
+    auto text = IMAGE_FIRST_SECTION(pNT);
+    PIMAGE_SECTION_HEADER rdata = NULL;
+
+    PIMAGE_DATA_DIRECTORY pImportDirectory;
+    DWORD SizeOfImage;
+    if (pNT->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
+        pImportDirectory = pNT->OptionalHeader.DataDirectory + IMAGE_DIRECTORY_ENTRY_IMPORT;
+        SizeOfImage = pNT->OptionalHeader.SizeOfImage;
+    }
+    else {
+        pImportDirectory = ((PIMAGE_NT_HEADERS32)pNT)->OptionalHeader.DataDirectory + IMAGE_DIRECTORY_ENTRY_IMPORT;
+        SizeOfImage = ((PIMAGE_NT_HEADERS32)pNT)->OptionalHeader.SizeOfImage;
+    }
+
+    auto base = (size_t)VirtualAlloc(NULL, SizeOfImage, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    for (size_t i = 0; i < pNT->FileHeader.NumberOfSections; i++) {
+        memcpy((void*)(base + text[i].VirtualAddress), (void*)(base2 + text[i].PointerToRawData), text[i].Misc.VirtualSize);
+        if (!rdata && CSTR_EQUAL == CompareStringA(LOCALE_INVARIANT, 0, (char*)text[i].Name, -1, ".rdata", -1))
+            rdata = text + i;
+    }
+
     if (!rdata) rdata = text;
+
+    auto pImportDescriptor = (PIMAGE_IMPORT_DESCRIPTOR)(base + pImportDirectory->VirtualAddress);
+    auto import_msvcrt = findImportImage(pImportDescriptor, base, "msvcrt.dll");
+    if (!import_msvcrt) return -2;
     
+    size_t memset_addr, VerifyVersion_addr = -1;
+    auto import_krnl32 = findImportImage(pImportDescriptor, base, "api-ms-win-core-kernel32-legacy-l1-1-1.dll");
+    if (!import_krnl32) import_krnl32 = findImportImage(pImportDescriptor, base, "KERNEL32.dll");
+
     auto CDefPolicy_Query = pattenMatch(base, rdata, Query, sizeof(Query) - 1);
     auto GetInstanceOfTSLicense = pattenMatch(base, rdata, InstanceOfLicense, sizeof(InstanceOfLicense) - 1);
     auto IsSingleSessionPerUserEnabled = pattenMatch(base, rdata, SingleSessionEnabled, sizeof(SingleSessionEnabled) - 1);
@@ -245,19 +258,6 @@ int main(int argc, char** argv)
     auto IsLicenseTypeLocalOnly = pattenMatch(base, rdata, LocalOnly, sizeof(LocalOnly) - 1);
     auto bRemoteConnAllowed = pattenMatch(base, rdata, AllowRemote, sizeof(AllowRemote));
 
-    PIMAGE_DATA_DIRECTORY pImportDirectory;
-    if (pNT->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC)
-        pImportDirectory = pNT->OptionalHeader.DataDirectory + IMAGE_DIRECTORY_ENTRY_IMPORT;
-    else
-        pImportDirectory = ((PIMAGE_NT_HEADERS32)pNT)->OptionalHeader.DataDirectory + IMAGE_DIRECTORY_ENTRY_IMPORT;
-    auto pImportDescriptor = (PIMAGE_IMPORT_DESCRIPTOR)(base + pImportDirectory->VirtualAddress);
-    auto import_msvcrt = findImportImage(pImportDescriptor, base, "msvcrt.dll");
-    if (!import_msvcrt) return -2;
-    
-    size_t memset_addr, VerifyVersion_addr = -1;
-    auto import_krnl32 = findImportImage(pImportDescriptor, base, "api-ms-win-core-kernel32-legacy-l1-1-1.dll");
-    if (!import_krnl32) import_krnl32 = findImportImage(pImportDescriptor, base, "KERNEL32.dll");
-    
     size_t CDefPolicy_Query_addr = 0, GetInstanceOfTSLicense_addr = 0, IsSingleSessionPerUserEnabled_addr = 0,
         IsSingleSessionPerUser_addr = 0, IsLicenseTypeLocalOnly_addr = 0, bRemoteConnAllowed_xref;
     DWORD CSLQuery_Initialize_addr = 0, CSLQuery_Initialize_len = 0x11000;
@@ -331,7 +331,8 @@ int main(int argc, char** argv)
                             target = (size_t)operands[0].imm.value.u - ImageBase;
                         else if (instruction.mnemonic == ZYDIS_MNEMONIC_MOV && operands[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE &&
                             (operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER && instruction.length == 5 ||
-                                operands[0].type == ZYDIS_OPERAND_TYPE_MEMORY && instruction.length >= 7 && operands[0].mem.base == ZYDIS_REGISTER_EBP))
+                                operands[0].type == ZYDIS_OPERAND_TYPE_MEMORY && instruction.length >= 7 &&
+                                (operands[0].mem.base == ZYDIS_REGISTER_EBP || operands[0].mem.base == ZYDIS_REGISTER_ESP)))
                             target = (size_t)operands[1].imm.value.u - ImageBase;
                         else goto nxt;
 
@@ -351,6 +352,7 @@ int main(int argc, char** argv)
                         }
                         else goto nxt;
                         if (visited.empty()) visited.add(addr, j);
+                        while (!jmpAddr.empty()) jmpAddr.pop();
                         if (CDefPolicy_Query_addr && GetInstanceOfTSLicense_addr && IsSingleSessionPerUserEnabled_addr &&
                             IsSingleSessionPerUser_addr && IsLicenseTypeLocalOnly_addr && CSLQuery_Initialize_addr) goto fin;
                         goto out;
@@ -384,9 +386,9 @@ int main(int argc, char** argv)
     fin:;
     }
 
-    auto hResInfo = FindResourceW((HMODULE)base, MAKEINTRESOURCEW(1), MAKEINTRESOURCEW(16));
+    auto hResInfo = FindResourceW(hMod, MAKEINTRESOURCEW(1), MAKEINTRESOURCEW(16));
     if (!hResInfo) return -4;
-    auto hResData = (PVS_VERSIONINFO)LoadResource((HMODULE)base, hResInfo);
+    auto hResData = (PVS_VERSIONINFO)LoadResource(hMod, hResInfo);
     if (!hResData) return -5;
 
     printf("[%hu.%hu.%hu.%hu]\n", HIWORD(hResData->Value.dwFileVersionMS), LOWORD(hResData->Value.dwFileVersionMS),

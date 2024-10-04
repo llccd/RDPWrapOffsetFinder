@@ -239,7 +239,7 @@ int SingleUserPatch(ZydisDecoder* decoder, size_t RVA, size_t base, size_t targe
                             "SingleUserCode.x64=mov_eax_1_nop_%d\n", IP - base, instruction.length - 5);
                         return 1;
                     }
-                    if (decoder->stack_width == ZYDIS_STACK_WIDTH_64 && instruction.mnemonic == ZYDIS_MNEMONIC_CMP &&
+                    if (instruction.mnemonic == ZYDIS_MNEMONIC_CMP &&
                         instruction.length <= 8 && operands[0].type == ZYDIS_OPERAND_TYPE_MEMORY &&
                         (operands[0].mem.base == ZYDIS_REGISTER_RBP || operands[0].mem.base == ZYDIS_REGISTER_RSP) &&
                         (operands[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE && operands[1].imm.value.u == 1 ||

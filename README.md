@@ -22,8 +22,6 @@ This project depends on [zydis](https://github.com/zyantific/zydis), you needed 
 
 - Windows 8 Consumer Preview (SLPolicyFunc=New_Win8SL_CP) is currently not supported
 
-- 32bit versions are not widely tested and may return wrong result
+- PDB symbol of `termsrv.dll` is needed. If the program outputs "Symbol not found", check your Internet connection to Microsoft symbol server. You can manually set environment variable `_NT_SYMBOL_PATH` to use a symbol proxy
 
-- PDB symbol of termsrv.dll is needed. If the program outputs nothing, check your Internet connection to Microsoft symbol server. You can manually set environment variable `_NT_SYMBOL_PATH` to use a symbol proxy
-
-- If symbol is not available, you can try the `_nosymbol` version which manually search pattens. `_nosymbol` version only supports 64bit system
+- If the required symbol is not available, you can try the `_nosymbol` version which manually search pattens. Using the `_nosymbol` version with 32bit binaries is not widely tested and may return wrong results
