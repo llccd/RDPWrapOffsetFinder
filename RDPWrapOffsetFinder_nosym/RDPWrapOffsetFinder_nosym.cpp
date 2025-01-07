@@ -264,6 +264,7 @@ int main(int argc, char** argv)
 
     size_t ImageBase, IP, length;
     const char* arch = "x64";
+    const char* func = "New_Win8SL";
     ZydisDecoder decoder;
     ZydisDecodedInstruction instruction;
     ZydisDecodedOperand operands[ZYDIS_MAX_OPERAND_COUNT];
@@ -347,6 +348,7 @@ int main(int argc, char** argv)
                         else if (!IsLicenseTypeLocalOnly_addr && target == IsLicenseTypeLocalOnly)
                             IsLicenseTypeLocalOnly_addr = IP - base;
                         else if (!CSLQuery_Initialize_addr && target == bRemoteConnAllowed) {
+                            if (instruction.mnemonic == ZYDIS_MNEMONIC_PUSH) func = "New_Win8SL_CP";
                             bRemoteConnAllowed_xref = j - base;
                             CSLQuery_Initialize_addr = (DWORD)(IP - base);
                         }
@@ -433,7 +435,7 @@ int main(int argc, char** argv)
             {
                 _printf_p("SLPolicyInternal.%1$s=1\n"
                     "SLPolicyOffset.%1$s=%2$zX\n"
-                    "SLPolicyFunc.%1$s=New_Win8SL\n", arch, IP + (size_t)operands[0].imm.value.u - base);
+                    "SLPolicyFunc.%1$s=%3$s\n", arch, IP + (size_t)operands[0].imm.value.u - base, func);
                 return 0;
             } 
         }

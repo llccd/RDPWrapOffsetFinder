@@ -20,6 +20,30 @@ void DefPolicyPatch(ZydisDecoder* decoder, size_t RVA, size_t base);
 
 int SingleUserPatch(ZydisDecoder* decoder, size_t RVA, size_t base, size_t target, size_t target2);
 
+bool SLPolicyCP(ZydisDecoder* decoder, size_t RVA, size_t base) {
+    ZyanUSize length = 128;
+    ZydisDecodedInstruction instruction;
+    ZydisDecodedOperand operands[ZYDIS_MAX_OPERAND_COUNT];
+    auto IP = RVA + base;
+
+    if (decoder->stack_width == ZYDIS_STACK_WIDTH_32)
+        while (ZYAN_SUCCESS(ZydisDecoderDecodeFull(decoder, (void*)IP, length, &instruction, operands)))
+        {
+            IP += instruction.length;
+            length -= instruction.length;
+
+            if (instruction.mnemonic == ZYDIS_MNEMONIC_MOV &&
+                operands[1].type == ZYDIS_OPERAND_TYPE_MEMORY &&
+                operands[1].mem.base == ZYDIS_REGISTER_EBP &&
+                operands[1].mem.disp.value > 0 &&
+                operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER)
+                return true;
+
+            if (instruction.mnemonic == ZYDIS_MNEMONIC_TEST) break;
+        }
+    return false;
+}
+
 int main(int argc, char** argv)
 {
     auto hProcess = GetCurrentProcess();
@@ -113,10 +137,18 @@ int main(int argc, char** argv)
 
     if (hResData->Value.dwFileVersionMS == 0x00060002)
     {
-        if (SymFromNameW(hProcess, L"SLGetWindowsInformationDWORDWrapper", &symbol))
-            _printf_p("SLPolicyInternal.%1$s=1\n"
-                "SLPolicyOffset.%1$s=%2$llX\n"
-                "SLPolicyFunc.%1$s=New_Win8SL\n", arch, symbol.Address - symbol.ModBase);
+        if (SymFromNameW(hProcess, L"SLGetWindowsInformationDWORDWrapper", &symbol)) {
+            auto addr = (size_t)(symbol.Address - symbol.ModBase);
+
+            if (SLPolicyCP(&decoder, addr, base))
+                _printf_p("SLPolicyInternal.%1$s=1\n"
+                    "SLPolicyOffset.%1$s=%2$zX\n"
+                    "SLPolicyFunc.%1$s=New_Win8SL_CP\n", arch, addr);
+            else
+                _printf_p("SLPolicyInternal.%1$s=1\n"
+                    "SLPolicyOffset.%1$s=%2$zX\n"
+                    "SLPolicyFunc.%1$s=New_Win8SL\n", arch, addr);
+        }
         else puts("ERROR: SLGetWindowsInformationDWORDWrapper not found");
         return 0;
     }
