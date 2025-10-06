@@ -24,15 +24,86 @@ jobs:
         
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v1
-        
-    - name: Build Zydis dependency
+
+    - name: Build Zydis dependency (Meson)
+      uses: actions/cache@v4
+      with:
+        # cache meson/meson-python and the builddir output to speed up repeated runs
+        path: |
+          ~/.cache/pip
+          zydis/builddir
+        key: ${{ runner.os }}-zydis-${{ matrix.configuration }}-v1
+
+    - name: Install Meson & Ninja
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install meson ninja
+
+    - name: Configure & build Zydis with Meson
       run: |
         cd zydis
         git submodule update --init --recursive
-        cd msvc
-        msbuild Zydis.sln /p:Configuration=Debug /p:Platform=${{ matrix.platform }} /p:RuntimeLibrary=MultiThreadedDebug
-        msbuild Zydis.sln /p:Configuration=Release /p:Platform=${{ matrix.platform }} /p:RuntimeLibrary=MultiThreaded
+        # Use meson build system (Zydis supports meson); create builddir per configuration
+        mkdir -p builddir
+        if [ "${{ matrix.configuration }}" = "Debug" ]; then
+          meson setup builddir --buildtype=debug -Dexamples=false -Dtests=false || meson setup --reconfigure builddir --buildtype=debug -Dexamples=false -Dtests=false
+          meson compile -C builddir
+        else
+          meson setup builddir --buildtype=release -Dexamples=false -Dtests=false || meson setup --reconfigure builddir --buildtype=release -Dexamples=false -Dtests=false
+          meson compile -C builddir
+        fi
+
+    - name: Upload Zydis build artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: zydis-${{ matrix.configuration }}-${{ matrix.platform }}
+        path: |
+          zydis/builddir
         
+    - name: Download Zydis artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: zydis-${{ matrix.configuration }}-${{ matrix.platform }}
+        path: zydis_build
+
+    - name: Prepare Zydis for linking
+      shell: pwsh
+      run: |
+        # On Windows runners use PowerShell to copy headers and libs into locations MSBuild will find.
+        $ErrorActionPreference = 'Continue'
+        Write-Host "Preparing Zydis artifacts for linking..."
+        # Create destinations
+        $includeDest = "$PWD\zydis\include"
+        $libDest = "$PWD\zydis\lib"
+        New-Item -ItemType Directory -Force -Path $includeDest | Out-Null
+        New-Item -ItemType Directory -Force -Path $libDest | Out-Null
+
+        # Copy any 'include' directories from the artifact
+        Get-ChildItem -Path "$PWD\zydis_build" -Recurse -Directory -Filter include -ErrorAction SilentlyContinue |
+          ForEach-Object {
+            Write-Host "Copying include from: $($_.FullName)"
+            Copy-Item -Path $_.FullName -Destination $includeDest -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+        # Also copy header files if present anywhere
+        Get-ChildItem -Path "$PWD\zydis_build" -Recurse -Include *.h,*.hpp -File -ErrorAction SilentlyContinue |
+          ForEach-Object {
+            $rel = $_.FullName.Substring($PWD.Path.Length).TrimStart('\')
+            $target = Join-Path $includeDest $_.Name
+            Copy-Item -Path $_.FullName -Destination $target -Force -ErrorAction SilentlyContinue
+          }
+
+        # Copy library files (.lib, .dll, .a)
+        Get-ChildItem -Path "$PWD\zydis_build" -Recurse -Include *.lib,*.dll,*.a -File -ErrorAction SilentlyContinue |
+          ForEach-Object {
+            Write-Host "Copying lib: $($_.FullName) to $libDest"
+            Copy-Item -Path $_.FullName -Destination $libDest -Force -ErrorAction SilentlyContinue
+          }
+
+        Write-Host "Listing zydis include and lib destinations"
+        Get-ChildItem -Path $includeDest -Recurse -Force | ForEach-Object { Write-Host $_.FullName }
+        Get-ChildItem -Path $libDest -Recurse -Force | ForEach-Object { Write-Host $_.FullName }
+
     - name: Build with MSBuild
       run: |
         msbuild RDPWrapOffsetFinder\RDPWrapOffsetFinder.vcxproj /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }}
