@@ -1,0 +1,47 @@
+name: Build RDPWrapOffsetFinder
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    name: Build on Windows
+    runs-on: windows-latest
+    
+    strategy:
+      matrix:
+        configuration: [Debug, Release]
+        platform: [x86, x64]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        submodules: 'recursive'
+        
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v1
+        
+    - name: Build Zydis dependency
+      run: |
+        cd zydis
+        git submodule update --init --recursive
+        cd msvc
+        msbuild Zydis.sln /p:Configuration=Debug /p:Platform=${{ matrix.platform }} /p:RuntimeLibrary=MultiThreadedDebug
+        msbuild Zydis.sln /p:Configuration=Release /p:Platform=${{ matrix.platform }} /p:RuntimeLibrary=MultiThreaded
+        
+    - name: Build with MSBuild
+      run: |
+        msbuild RDPWrapOffsetFinder\RDPWrapOffsetFinder.vcxproj /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }}
+        msbuild RDPWrapOffsetFinder_nosym\RDPWrapOffsetFinder_nosym.vcxproj /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }}
+      
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: RDPWrapOffsetFinder-${{ matrix.platform }}-${{ matrix.configuration }}
+        path: |
+          ${{ matrix.platform }}\${{ matrix.configuration }}\RDPWrapOffsetFinder.exe
+          ${{ matrix.platform }}\${{ matrix.configuration }}\RDPWrapOffsetFinder_nosym.exe
