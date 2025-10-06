@@ -39,7 +39,7 @@ jobs:
         msbuild RDPWrapOffsetFinder_nosym\RDPWrapOffsetFinder_nosym.vcxproj /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }}
       
     - name: Upload artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: RDPWrapOffsetFinder-${{ matrix.platform }}-${{ matrix.configuration }}
         path: |
