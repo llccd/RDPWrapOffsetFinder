@@ -14,7 +14,7 @@ jobs:
     strategy:
       matrix:
         configuration: [Debug, Release]
-        platform: [x64]
+        platform: [X64]
     
     steps:
     - name: Checkout code
