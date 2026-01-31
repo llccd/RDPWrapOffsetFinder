@@ -243,7 +243,8 @@ int main(int argc, char** argv)
     if (!rdata) rdata = text;
 
     auto pImportDescriptor = (PIMAGE_IMPORT_DESCRIPTOR)(base + pImportDirectory->VirtualAddress);
-    auto import_msvcrt = findImportImage(pImportDescriptor, base, "msvcrt.dll");
+    auto import_msvcrt = findImportImage(pImportDescriptor, base, "api-ms-win-crt-string-l1-1-0.dll");
+	if (!import_msvcrt) import_msvcrt = findImportImage(pImportDescriptor, base, "msvcrt.dll");
     if (!import_msvcrt) return -2;
     
     size_t memset_addr, VerifyVersion_addr = -1;
@@ -629,3 +630,4 @@ int main(int argc, char** argv)
 
     return 0;
 }
+
