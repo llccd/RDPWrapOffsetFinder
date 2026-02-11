@@ -6,6 +6,22 @@ Automatically find offsets needed by RDPWrap and generate rdpwrap.ini
 
 Pass the path of termsrv.dll as command line argument. If not provided, default to current system's termsrv.dll in System32 directory.
 
+# Setup Autoupdate
+
+1. Copy latest .zip Offset finder from https://github.com/llccd/RDPWrapOffsetFinder/releases
+
+2. Copy autoupdate.bat from https://github.com/llccd/RDPWrapOffsetFinder/tree/master/autoupdate and place in C:\Program Files\RDP Wrapper
+
+3. Be sure your Anti-virus has a path exclusion for C:\Program Files\RDP Wrapper
+
+4. Extract .zip (from step1) to C:\Program Files\RDP Wrapper
+
+5. Open Command Prompt (as Administrator) or in File Explorer, run AutoUpdate.bat As Administrator
+
+6. Done!  Reboot!
+
+7. Check with RDPConf.exe
+
 ## Compile
 
 This project depends on [zydis](https://github.com/zyantific/zydis), you needed to build zydis first.
@@ -23,3 +39,4 @@ This project depends on [zydis](https://github.com/zyantific/zydis), you needed 
 - PDB symbol of `termsrv.dll` is needed. If the program outputs "Symbol not found", check your Internet connection to Microsoft symbol server. You can manually set environment variable `_NT_SYMBOL_PATH` to use a symbol proxy
 
 - If the required symbol is not available, you can try the `_nosymbol` version which manually search pattens. Using the `_nosymbol` version with 32bit binaries is not widely tested and may return wrong results
+
