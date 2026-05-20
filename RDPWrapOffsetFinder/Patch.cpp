@@ -171,7 +171,6 @@ void DefPolicyPatch(ZydisDecoder* decoder, size_t RVA, size_t base) {
 
             if (instruction.mnemonic == ZYDIS_MNEMONIC_JNZ)
             {
-                IP -= lastLength;
                 jmp = "_jmp";
             }
             else if (instruction.mnemonic != ZYDIS_MNEMONIC_JZ && instruction.mnemonic != ZYDIS_MNEMONIC_POP)
