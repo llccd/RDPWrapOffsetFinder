@@ -1,6 +1,5 @@
-#include <iostream>
-#include <queue>
-#include <forward_list>
+#include <stdlib.h>
+#include <stdio.h>
 #include <windows.h>
 #include <Zydis/Zydis.h>
 
@@ -56,68 +55,149 @@ typedef struct _UNWIND_INFO {
 #define UNW_FLAG_CHAININFO      0x4
 #endif // _WIN64
 
-class range {
-private:
-    std::forward_list<std::pair<size_t, size_t>> list;
-public:
-    bool in_range(size_t val) {
-        for (auto& p : list) {
-            if (val < p.first) return false;
-            if (val < p.second) return true;
-        }
-        return false;
+typedef struct range_node {
+    size_t start;
+    size_t end;
+    struct range_node *next;
+} range_node, *range;
+
+static void range_clear(range &r) {
+    range_node *n = r;
+    while (n) {
+        range_node *next = n->next;
+        free(n);
+        n = next;
     }
-    size_t next_val(size_t val) {
-        for (auto& p : list) {
-            if (val < p.first) break;
-            if (val < p.second) {
-                val = p.second;
-                break;
+    r = NULL;
+}
+
+static int range_in_range(range n, size_t val) {
+    while (n) {
+        if (val < n->start) return 0;
+        if (val < n->end) return 1;
+        n = n->next;
+    }
+    return 0;
+}
+
+static size_t range_next_val(range n, size_t val) {
+    while (n) {
+        if (val < n->start) break;
+        if (val < n->end) {
+            val = n->end;
+            break;
+        }
+        n = n->next;
+    }
+    return val;
+}
+
+static void range_add(range &r, size_t start, size_t end) {
+    range_node *prev = r;
+    if (!prev || end < prev->start) {
+        range_node *n = (range_node *)malloc(sizeof(range_node));
+        if (!n) ExitProcess(-7);
+        n->start = start;
+        n->end = end;
+        n->next = r;
+        r = n;
+        return;
+    }
+    if (end <= prev->end) {
+        if (start < prev->start) prev->start = start;
+        return;
+    }
+    range_node *cur = prev->next;
+    while (cur) {
+        if (end < cur->start) {
+            if (start > prev->end) {
+                range_node *n = (range_node *)malloc(sizeof(range_node));
+                if (!n) ExitProcess(-7);
+                n->start = start;
+                n->end = end;
+                n->next = cur;
+                prev->next = n;
+            } else {
+                prev->end = end;
             }
-        }
-        return val;
-    }
-    void clear() {
-        list.clear();
-    }
-    bool empty() {
-        return list.empty();
-    }
-    void add(size_t start, size_t end) {
-        auto p = std::make_pair(start, end);
-        auto it = list.begin();
-        auto prev = &*it;
-        if (list.empty() || end < prev->first) {
-            list.emplace_front(p);
             return;
         }
-        if (end <= prev->second) {
-            if (start < prev->first) prev->first = start;
+        if (end <= cur->end) {
+            if (start < cur->start)
+                if (start > prev->end) cur->start = start;
+                else {
+                    prev->end = cur->end;
+                    prev->next = cur->next;
+                    free(cur);
+                }
             return;
         }
-        while (next(it) != list.end()) {
-            auto& i = *next(it);
-            if (end < i.first) {
-                if (start > prev->second) list.emplace_after(it, p);
-                else prev->second = end;
-                return;
-            }
-            if (end <= i.second) {
-                if (start < i.first)
-                    if (start > prev->second) i.first = start;
-                    else {
-                        prev->second = i.second;
-                        list.erase_after(it);
-                    }
-                return;
-            }
-            prev = &i;
-            it++;
-        }
-        if (start > prev->second) list.emplace_after(it, p);
-        else if (start >= prev->first && end > prev->second) prev->second = end;
+        prev = cur;
+        cur = cur->next;
     }
-};
+    if (start > prev->end) {
+        range_node *n = (range_node *)malloc(sizeof(range_node));
+        if (!n) ExitProcess(-7);
+        n->start = start;
+        n->end = end;
+        n->next = NULL;
+        prev->next = n;
+    } else if (start >= prev->start && end > prev->end) {
+        prev->end = end;
+    }
+}
+
+typedef struct {
+    size_t *data;
+    size_t size;
+    size_t capacity;
+} min_heap;
+
+static void min_heap_push(min_heap *h, size_t val) {
+    if (h->size >= h->capacity) {
+        size_t new_cap = h->capacity == 0 ? 8 : h->capacity * 2;
+        h->data = (size_t *)realloc(h->data, new_cap * sizeof(size_t));
+        if (!h->data) ExitProcess(-7);
+        h->capacity = new_cap;
+    }
+    h->data[h->size++] = val;
+    size_t i = h->size - 1;
+    while (i > 0) {
+        size_t parent = (i - 1) / 2;
+        if (h->data[parent] <= h->data[i]) break;
+        size_t tmp = h->data[parent];
+        h->data[parent] = h->data[i];
+        h->data[i] = tmp;
+        i = parent;
+    }
+}
+
+static void min_heap_pop(min_heap *h) {
+    h->size--;
+    if (h->size > 0) {
+        h->data[0] = h->data[h->size];
+        size_t i = 0;
+        while (1) {
+            size_t smallest = i;
+            size_t left = 2 * i + 1;
+            size_t right = 2 * i + 2;
+            if (left < h->size && h->data[left] < h->data[smallest]) smallest = left;
+            if (right < h->size && h->data[right] < h->data[smallest]) smallest = right;
+            if (smallest == i) break;
+            size_t tmp = h->data[smallest];
+            h->data[smallest] = h->data[i];
+            h->data[i] = tmp;
+            i = smallest;
+        }
+    }
+}
+
+static void min_heap_free(min_heap *h) {
+    free(h->data);
+    h->data = NULL;
+    h->size = 0;
+    h->capacity = 0;
+}
 
 size_t pattenMatch(size_t base, PIMAGE_SECTION_HEADER pSection, const void *str, size_t size)
 {
@@ -202,20 +282,24 @@ void DefPolicyPatch(ZydisDecoder* decoder, size_t RVA, size_t base);
 
 int SingleUserPatch(ZydisDecoder* decoder, size_t RVA, size_t base, size_t target, size_t target2);
 
-int main(int argc, char** argv)
+int main()
 {
-    char szTermsrv[MAX_PATH + 1];
-    if (argc >= 2) lstrcpyA(szTermsrv, argv[1]);
-    else lstrcpyA(szTermsrv + GetSystemDirectoryA(szTermsrv, sizeof(szTermsrv) / sizeof(char)), "\\termsrv.dll");
+    WCHAR szTermsrv[MAX_PATH + 1];
+    int argc;
+    const auto current_cmdline = GetCommandLineW();
+    const auto argv = CommandLineToArgvW(current_cmdline, &argc);
+    if (!argv) ExitProcess(-6);
+    if (argc >= 2) lstrcpyW(szTermsrv, argv[1]);
+    else lstrcpyW(szTermsrv + GetSystemDirectoryW(szTermsrv, sizeof(szTermsrv) / sizeof(WCHAR)), L"\\termsrv.dll");
 #ifndef _WIN64
     PVOID OldValue;
     Wow64DisableWow64FsRedirection(&OldValue);
 #endif // _WIN64
-    auto hMod = LoadLibraryExA(szTermsrv, NULL, LOAD_LIBRARY_AS_DATAFILE);
+    auto hMod = LoadLibraryExW(szTermsrv, NULL, LOAD_LIBRARY_AS_DATAFILE);
 #ifndef _WIN64
     Wow64RevertWow64FsRedirection(OldValue);
 #endif // _WIN64
-    if (!hMod) return -1;
+    if (!hMod) ExitProcess(-1);
     auto base2 = (size_t)hMod & ~3;
     auto pDos = (PIMAGE_DOS_HEADER)base2;
     auto pNT = (PIMAGE_NT_HEADERS64)(base2 + pDos->e_lfanew);
@@ -245,7 +329,7 @@ int main(int argc, char** argv)
     auto pImportDescriptor = (PIMAGE_IMPORT_DESCRIPTOR)(base + pImportDirectory->VirtualAddress);
     auto import_msvcrt = findImportImage(pImportDescriptor, base, "api-ms-win-crt-string-l1-1-0.dll");
 	if (!import_msvcrt) import_msvcrt = findImportImage(pImportDescriptor, base, "msvcrt.dll");
-    if (!import_msvcrt) return -2;
+    if (!import_msvcrt) ExitProcess(-2);
     
     size_t memset_addr, VerifyVersion_addr = -1;
     auto import_krnl32 = findImportImage(pImportDescriptor, base, "api-ms-win-core-kernel32-legacy-l1-1-1.dll");
@@ -307,22 +391,22 @@ int main(int argc, char** argv)
 
         ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LONG_COMPAT_32, ZYDIS_STACK_WIDTH_32);
         arch = "x86";
-        range visited;
-        std::priority_queue<size_t, std::vector<size_t>, std::greater<size_t>> jmpAddr;
+        range visited = NULL;
+        min_heap jmpAddr = {};
 
         IP = base + text->VirtualAddress;
         length = text->SizeOfRawData;
 
         while (length >= 5)
             if (!memcmp((void*)IP, "\x8B\xFF\x55\x8B\xEC", 5)) {
-                jmpAddr.push(IP);
+                min_heap_push(&jmpAddr, IP);
 
-                while (!jmpAddr.empty()) {
-                    auto addr = jmpAddr.top();
-                    jmpAddr.pop();
-                    if (visited.in_range(addr)) continue;
+                while (jmpAddr.size) {
+                    size_t addr = jmpAddr.data[0];
+                    min_heap_pop(&jmpAddr);
+                    if (range_in_range(visited, addr)) continue;
 
-                    auto j = addr;
+                    size_t j = addr;
                     ZyanUSize l = text->SizeOfRawData - (j - base);
                     while (ZYAN_SUCCESS(ZydisDecoderDecodeFull(&decoder, (void*)j, l, &instruction, operands))) {
                         j += instruction.length;
@@ -354,8 +438,8 @@ int main(int argc, char** argv)
                             CSLQuery_Initialize_addr = (DWORD)(IP - base);
                         }
                         else goto nxt;
-                        if (visited.empty()) visited.add(addr, j);
-                        while (!jmpAddr.empty()) jmpAddr.pop();
+                        if (!visited) range_add(visited, addr, j);
+                        jmpAddr.size = 0;
                         if (CDefPolicy_Query_addr && GetInstanceOfTSLicense_addr && IsSingleSessionPerUserEnabled_addr &&
                             IsSingleSessionPerUser_addr && IsLicenseTypeLocalOnly_addr && CSLQuery_Initialize_addr) goto fin;
                         goto out;
@@ -368,17 +452,17 @@ int main(int argc, char** argv)
                             operands[1].type == ZYDIS_OPERAND_TYPE_REGISTER &&
                             operands[1].reg.value == ZYDIS_REGISTER_EIP) {
                             size_t offset = j + (size_t)operands[0].imm.value.u;
-                            if ((offset < addr || offset > j) && !visited.in_range(offset)) jmpAddr.push(offset);
+                            if ((offset < addr || offset > j) && !range_in_range(visited, offset)) min_heap_push(&jmpAddr, offset);
                         }
                         if (instruction.mnemonic == ZYDIS_MNEMONIC_RET || instruction.mnemonic == ZYDIS_MNEMONIC_JMP) {
-                            visited.add(addr, j);
+                            range_add(visited, addr, j);
                             break;
                         }
                     }
                 }
             out:
-                auto nxt = visited.next_val(IP);
-                visited.clear();
+                size_t nxt = range_next_val(visited, IP);
+                range_clear(visited);
                 length -= nxt - IP;
                 IP = nxt;
             }
@@ -386,13 +470,15 @@ int main(int argc, char** argv)
                 IP++;
                 length--;
             }
-    fin:;
+    fin:
+        min_heap_free(&jmpAddr);
+        range_clear(visited);
     }
 
     auto hResInfo = FindResourceW(hMod, MAKEINTRESOURCEW(1), MAKEINTRESOURCEW(16));
-    if (!hResInfo) return -4;
+    if (!hResInfo) ExitProcess(-4);
     auto hResData = (PVS_VERSIONINFO)LoadResource(hMod, hResInfo);
-    if (!hResData) return -5;
+    if (!hResData) ExitProcess(-5);
 
     printf("[%hu.%hu.%hu.%hu]\n", HIWORD(hResData->Value.dwFileVersionMS), LOWORD(hResData->Value.dwFileVersionMS),
         HIWORD(hResData->Value.dwFileVersionLS), LOWORD(hResData->Value.dwFileVersionLS));
@@ -410,11 +496,11 @@ int main(int argc, char** argv)
         DefPolicyPatch(&decoder, CDefPolicy_Query_addr, base);
     else puts("ERROR: CDefPolicy_Query not found");
 
-    if (hResData->Value.dwFileVersionMS <= 0x00060001) return 0;
+    if (hResData->Value.dwFileVersionMS <= 0x00060001) ExitProcess(0);
 
     if (!CSLQuery_Initialize_addr) {
         puts("ERROR: CSLQuery_Initialize not found");
-        return 0;
+        ExitProcess(0);
     }
 
     IP = base + CSLQuery_Initialize_addr;
@@ -442,7 +528,7 @@ int main(int argc, char** argv)
         }
 
         puts("ERROR: SLGetWindowsInformationDWORDWrapper not found");
-        return 0;
+        ExitProcess(0);
     }
 
     if (GetInstanceOfTSLicense_addr)
@@ -628,6 +714,6 @@ int main(int argc, char** argv)
         printf("bInitialized.%s=%zX\n", arch, bInitialized_addr);
     else puts("ERROR: bInitialized not found");
 
-    return 0;
+    ExitProcess(0);
 }
 

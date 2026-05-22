@@ -6,6 +6,9 @@ MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RDPWrapOffsetFinder", "RDPWrapOffsetFinder\RDPWrapOffsetFinder.vcxproj", "{D2323458-81A7-481D-82DA-B57906C8AAFC}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RDPWrapOffsetFinder_nosymbol", "RDPWrapOffsetFinder_nosym\RDPWrapOffsetFinder_nosym.vcxproj", "{521FD0FA-1D49-468F-84CF-B3348508D624}"
+	ProjectSection(ProjectDependencies) = postProject
+		{D2323458-81A7-481D-82DA-B57906C8AAFC} = {D2323458-81A7-481D-82DA-B57906C8AAFC}
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
