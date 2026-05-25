@@ -59,13 +59,15 @@ int main()
     if (!argv) ExitProcess(-8);
     if (argc >= 2) lstrcpyW(szTermsrv, argv[1]);
     else lstrcpyW(szTermsrv + GetSystemDirectoryW(szTermsrv, sizeof(szTermsrv) / sizeof(WCHAR)), L"\\termsrv.dll");
+    SYMSRV_INDEX_INFOW Info = { sizeof(SYMSRV_INDEX_INFOW) };
 #ifndef _WIN64
-    PVOID OldValue;
-    Wow64DisableWow64FsRedirection(&OldValue);
+    auto wow64func = (BOOLEAN(WINAPI*)(BOOLEAN)) GetProcAddress(GetModuleHandleA("kernel32.dll"), "Wow64EnableWow64FsRedirection");
+    if (wow64func) (*wow64func)(FALSE);
 #endif // _WIN64
+    if (!SymSrvGetFileIndexInfoW(szTermsrv, &Info, 0)) ExitProcess(-6);
     auto hMod = LoadLibraryExW(szTermsrv, NULL, LOAD_LIBRARY_AS_DATAFILE);
 #ifndef _WIN64
-    Wow64RevertWow64FsRedirection(OldValue);
+    if (wow64func) (*wow64func)(TRUE);
 #endif // _WIN64
     if (!hMod) ExitProcess(-2);
     auto base = (size_t)hMod & ~3;
@@ -90,17 +92,9 @@ int main()
         SizeOfImage = ((PIMAGE_NT_HEADERS32)pNT)->OptionalHeader.SizeOfImage;
     }
     
-    SYMSRV_INDEX_INFOW Info = { sizeof(SYMSRV_INDEX_INFOW) };
-#ifndef _WIN64
-    Wow64DisableWow64FsRedirection(&OldValue);
-#endif // _WIN64
-    if (!SymSrvGetFileIndexInfoW(szTermsrv, &Info, 0)) ExitProcess(-6);
-#ifndef _WIN64
-    Wow64RevertWow64FsRedirection(OldValue);
-#endif // _WIN64
     if (!SymFindFileInPathW(hProcess, NULL, Info.pdbfile, &Info.guid, Info.age, 0, SSRVOPT_GUIDPTR, (PWSTR)&szTermsrv, NULL, NULL)) {
         if (GetLastError() == ERROR_FILE_NOT_FOUND) puts("Symbol not found");
-        return -7;
+        ExitProcess(-7);
     }
     if (!SymLoadModuleExW(hProcess, NULL, szTermsrv, NULL, ImageBase, SizeOfImage, NULL, 0)) ExitProcess(-3);
 
@@ -144,14 +138,13 @@ int main()
         if (SymFromNameW(hProcess, L"SLGetWindowsInformationDWORDWrapper", &symbol)) {
             auto addr = (size_t)(symbol.Address - symbol.ModBase);
 
-            if (SLPolicyCP(&decoder, addr, base))
-                _printf_p("SLPolicyInternal.%1$s=1\n"
-                    "SLPolicyOffset.%1$s=%2$zX\n"
-                    "SLPolicyFunc.%1$s=New_Win8SL_CP\n", arch, addr);
-            else
-                _printf_p("SLPolicyInternal.%1$s=1\n"
-                    "SLPolicyOffset.%1$s=%2$zX\n"
-                    "SLPolicyFunc.%1$s=New_Win8SL\n", arch, addr);
+            printf(decoder.stack_width == ZYDIS_STACK_WIDTH_64
+                ? "SLPolicyInternal.x64=1\n"
+                "SLPolicyOffset.x64=%IX\n"
+                "SLPolicyFunc.x64=%s\n"
+                : "SLPolicyInternal.x86=1\n"
+                "SLPolicyOffset.x86=%IX\n"
+                "SLPolicyFunc.x86=%s\n", addr, SLPolicyCP(&decoder, addr, base) ? "New_Win8SL_CP" : "New_Win8SL");
         }
         else puts("ERROR: SLGetWindowsInformationDWORDWrapper not found");
         ExitProcess(0);
@@ -167,9 +160,13 @@ int main()
 
     if (SymFromNameW(hProcess, L"CSLQuery::Initialize", &symbol))
     {
-        _printf_p("SLInitHook.%1$s=1\n"
-            "SLInitOffset.%1$s=%2$llX\n"
-            "SLInitFunc.%1$s=New_CSLQuery_Initialize\n", arch, symbol.Address - symbol.ModBase);
+        printf(decoder.stack_width == ZYDIS_STACK_WIDTH_64
+            ? "SLInitHook.x64=1\n"
+            "SLInitOffset.x64=%llX\n"
+            "SLInitFunc.x64=New_CSLQuery_Initialize\n"
+            : "SLInitHook.x86=1\n"
+            "SLInitOffset.x86=%llX\n"
+            "SLInitFunc.x86=New_CSLQuery_Initialize\n", symbol.Address - symbol.ModBase);
 
         printf("\n[%hu.%hu.%hu.%hu-SLInit]\n", HIWORD(hResData->Value.dwFileVersionMS), LOWORD(hResData->Value.dwFileVersionMS),
             HIWORD(hResData->Value.dwFileVersionLS), LOWORD(hResData->Value.dwFileVersionLS));

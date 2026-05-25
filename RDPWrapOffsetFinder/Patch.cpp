@@ -69,10 +69,10 @@ void LocalOnlyPatch(ZydisDecoder* decoder, size_t RVA, size_t base, size_t targe
             if (instruction.raw.imm[0].offset == 2) jmp = "nopjmp";
             printf(decoder->stack_width == ZYDIS_STACK_WIDTH_64
                 ? "LocalOnlyPatch.x64=1\n"
-                "LocalOnlyOffset.x64=%zX\n"
+                "LocalOnlyOffset.x64=%IX\n"
                 "LocalOnlyCode.x64=%s\n"
                 : "LocalOnlyPatch.x86=1\n"
-                "LocalOnlyOffset.x86=%zX\n"
+                "LocalOnlyOffset.x86=%IX\n"
                 "LocalOnlyCode.x86=%s\n", IP - base, jmp);
             return;
         }
@@ -127,10 +127,10 @@ void DefPolicyPatch(ZydisDecoder* decoder, size_t RVA, size_t base) {
 
             printf(decoder->stack_width == ZYDIS_STACK_WIDTH_64
                 ? "DefPolicyPatch.x64=1\n"
-                "DefPolicyOffset.x64=%zX\n"
+                "DefPolicyOffset.x64=%IX\n"
                 "DefPolicyCode.x64=CDefPolicy_Query_%s_%s%s\n"
                 : "DefPolicyPatch.x86=1\n"
-                "DefPolicyOffset.x86=%zX\n"
+                "DefPolicyOffset.x86=%IX\n"
                 "DefPolicyCode.x86=CDefPolicy_Query_%s_%s%s\n", IP - base, reg1, reg2, jmp);
             return;
         }
@@ -177,7 +177,7 @@ void DefPolicyPatch(ZydisDecoder* decoder, size_t RVA, size_t base) {
                 break;
 
             printf("DefPolicyPatch.x64=1\n"
-                "DefPolicyOffset.x64=%zX\n"
+                "DefPolicyOffset.x64=%IX\n"
                 "DefPolicyCode.x64=CDefPolicy_Query_%s_%s%s\n", IP - base, reg1, reg2, jmp);
             return;
         }
@@ -234,7 +234,7 @@ int SingleUserPatch(ZydisDecoder* decoder, size_t RVA, size_t base, size_t targe
                         operands[0].mem.base == ZYDIS_REGISTER_RIP &&
                         operands[0].mem.disp.value + IP + instruction.length == target2) {
                         printf("SingleUserPatch.x64=1\n"
-                            "SingleUserOffset.x64=%zX\n"
+                            "SingleUserOffset.x64=%IX\n"
                             "SingleUserCode.x64=mov_eax_1_nop_%d\n", IP - base, instruction.length - 5);
                         return 1;
                     }
@@ -244,7 +244,7 @@ int SingleUserPatch(ZydisDecoder* decoder, size_t RVA, size_t base, size_t targe
                         (operands[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE && operands[1].imm.value.u == 1 ||
                             operands[1].type == ZYDIS_OPERAND_TYPE_REGISTER)) {
                         printf("SingleUserPatch.x64=1\n"
-                            "SingleUserOffset.x64=%zX\n"
+                            "SingleUserOffset.x64=%IX\n"
                             "SingleUserCode.x64=nop_%d\n", IP - base, instruction.length);
                         return 1;
                     }
@@ -256,7 +256,7 @@ int SingleUserPatch(ZydisDecoder* decoder, size_t RVA, size_t base, size_t targe
                         operands[0].mem.segment == ZYDIS_REGISTER_DS &&
                         operands[0].mem.disp.value + base == target2) {
                         printf("SingleUserPatch.x86=1\n"
-                            "SingleUserOffset.x86=%zX\n"
+                            "SingleUserOffset.x86=%IX\n"
                             "SingleUserCode.x86=pop_eax_add_esp_12_nop_%d\n", IP - base, instruction.length - 4);
                         return 1;
                     }
@@ -264,7 +264,7 @@ int SingleUserPatch(ZydisDecoder* decoder, size_t RVA, size_t base, size_t targe
                         operands[0].type == ZYDIS_OPERAND_TYPE_MEMORY && operands[0].mem.base == ZYDIS_REGISTER_EBP &&
                         operands[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE && operands[1].imm.value.u == 1) {
                         printf("SingleUserPatch.x86=1\n"
-                            "SingleUserOffset.x86=%zX\n"
+                            "SingleUserOffset.x86=%IX\n"
                             "SingleUserCode.x86=nop_%d\n", IP - base, instruction.length);
                         return 1;
                     }

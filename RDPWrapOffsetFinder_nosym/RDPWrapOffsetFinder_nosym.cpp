@@ -292,12 +292,12 @@ int main()
     if (argc >= 2) lstrcpyW(szTermsrv, argv[1]);
     else lstrcpyW(szTermsrv + GetSystemDirectoryW(szTermsrv, sizeof(szTermsrv) / sizeof(WCHAR)), L"\\termsrv.dll");
 #ifndef _WIN64
-    PVOID OldValue;
-    Wow64DisableWow64FsRedirection(&OldValue);
+    auto wow64func = (BOOLEAN (WINAPI *)(BOOLEAN)) GetProcAddress(GetModuleHandleA("kernel32.dll"), "Wow64EnableWow64FsRedirection");
+    if (wow64func) (*wow64func)(FALSE);
 #endif // _WIN64
     auto hMod = LoadLibraryExW(szTermsrv, NULL, LOAD_LIBRARY_AS_DATAFILE);
 #ifndef _WIN64
-    Wow64RevertWow64FsRedirection(OldValue);
+    if (wow64func) (*wow64func)(TRUE);
 #endif // _WIN64
     if (!hMod) ExitProcess(-1);
     auto base2 = (size_t)hMod & ~3;
@@ -319,7 +319,7 @@ int main()
 
     auto base = (size_t)VirtualAlloc(NULL, SizeOfImage, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     for (size_t i = 0; i < pNT->FileHeader.NumberOfSections; i++) {
-        memcpy((void*)(base + text[i].VirtualAddress), (void*)(base2 + text[i].PointerToRawData), text[i].Misc.VirtualSize);
+        memcpy((void*)(base + text[i].VirtualAddress), (void*)(base2 + text[i].PointerToRawData), text[i].SizeOfRawData);
         if (!rdata && CSTR_EQUAL == CompareStringA(LOCALE_INVARIANT, 0, (char*)text[i].Name, -1, ".rdata", -1))
             rdata = text + i;
     }
@@ -339,6 +339,7 @@ int main()
     auto GetInstanceOfTSLicense = pattenMatch(base, rdata, InstanceOfLicense, sizeof(InstanceOfLicense) - 1);
     auto IsSingleSessionPerUserEnabled = pattenMatch(base, rdata, SingleSessionEnabled, sizeof(SingleSessionEnabled) - 1);
     auto IsSingleSessionPerUser = pattenMatch(base, rdata, "IsSingleSessionPerUser", sizeof("IsSingleSessionPerUser"));
+    if (IsSingleSessionPerUser == -1) ExitProcess(-7);
     if (!memcmp((void*)(base + IsSingleSessionPerUser - 8), "CUtils::", 8)) IsSingleSessionPerUser -= 8;
     auto IsLicenseTypeLocalOnly = pattenMatch(base, rdata, LocalOnly, sizeof(LocalOnly) - 1);
     auto bRemoteConnAllowed = pattenMatch(base, rdata, AllowRemote, sizeof(AllowRemote));
@@ -361,7 +362,7 @@ int main()
         auto pExceptionDirectory = pNT->OptionalHeader.DataDirectory + IMAGE_DIRECTORY_ENTRY_EXCEPTION;
         auto FunctionTable = (PIMAGE_AMD64_RUNTIME_FUNCTION_ENTRY)(base + pExceptionDirectory->VirtualAddress);
         auto FunctionTableSize = pExceptionDirectory->Size / (DWORD)sizeof(IMAGE_AMD64_RUNTIME_FUNCTION_ENTRY);
-        if (!FunctionTableSize) return -3;
+        if (!FunctionTableSize) ExitProcess(-3);
 
         ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64);
         for (DWORD i = 0; i < FunctionTableSize; i++) {
@@ -520,9 +521,13 @@ int main()
                 (operands[1].reg.value == ZYDIS_REGISTER_RIP ||
                     operands[1].reg.value == ZYDIS_REGISTER_EIP))
             {
-                _printf_p("SLPolicyInternal.%1$s=1\n"
-                    "SLPolicyOffset.%1$s=%2$zX\n"
-                    "SLPolicyFunc.%1$s=%3$s\n", arch, IP + (size_t)operands[0].imm.value.u - base, func);
+                printf(decoder.stack_width == ZYDIS_STACK_WIDTH_64
+                    ? "SLPolicyInternal.x64=1\n"
+                    "SLPolicyOffset.x64=%IX\n"
+                    "SLPolicyFunc.x64=%s\n"
+                    : "SLPolicyInternal.x86=1\n"
+                    "SLPolicyOffset.x86=%IX\n"
+                    "SLPolicyFunc.x86=%s\n", IP + (size_t)operands[0].imm.value.u - base, func);
                 return 0;
             } 
         }
@@ -538,9 +543,13 @@ int main()
         else puts("ERROR: IsLicenseTypeLocalOnly not found");
     } else puts("ERROR: GetInstanceOfTSLicense not found");
 
-    _printf_p("SLInitHook.%1$s=1\n"
-        "SLInitOffset.%1$s=%2$lX\n"
-        "SLInitFunc.%1$s=New_CSLQuery_Initialize\n", arch, CSLQuery_Initialize_addr);
+    printf(decoder.stack_width == ZYDIS_STACK_WIDTH_64
+        ? "SLInitHook.x64=1\n"
+        "SLInitOffset.x64=%lX\n"
+        "SLInitFunc.x64=New_CSLQuery_Initialize\n"
+        : "SLInitHook.x86=1\n"
+        "SLInitOffset.x86=%lX\n"
+        "SLInitFunc.x86=New_CSLQuery_Initialize\n", CSLQuery_Initialize_addr);
 
     printf("\n[%hu.%hu.%hu.%hu-SLInit]\n", HIWORD(hResData->Value.dwFileVersionMS), LOWORD(hResData->Value.dwFileVersionMS),
         HIWORD(hResData->Value.dwFileVersionLS), LOWORD(hResData->Value.dwFileVersionLS));
@@ -683,35 +692,35 @@ int main()
     }
 
     if (bServerSku_addr)
-        printf("bServerSku.%s=%zX\n", arch, bServerSku_addr);
+        printf("bServerSku.%s=%IX\n", arch, bServerSku_addr);
     else puts("ERROR: bServerSku not found");
 
     if (bRemoteConnAllowed_addr)
-        printf("bRemoteConnAllowed.%s=%zX\n", arch, bRemoteConnAllowed_addr);
+        printf("bRemoteConnAllowed.%s=%IX\n", arch, bRemoteConnAllowed_addr);
     else puts("ERROR: bRemoteConnAllowed not found");
 
     if (bFUSEnabled_addr)
-        printf("bFUSEnabled.%s=%zX\n", arch, bFUSEnabled_addr);
+        printf("bFUSEnabled.%s=%IX\n", arch, bFUSEnabled_addr);
     else puts("ERROR: bFUSEnabled not found");
 
     if (bAppServerAllowed_addr)
-        printf("bAppServerAllowed.%s=%zX\n", arch, bAppServerAllowed_addr);
+        printf("bAppServerAllowed.%s=%IX\n", arch, bAppServerAllowed_addr);
     else puts("ERROR: bAppServerAllowed not found");
 
     if (bMultimonAllowed_addr)
-        printf("bMultimonAllowed.%s=%zX\n", arch, bMultimonAllowed_addr);
+        printf("bMultimonAllowed.%s=%IX\n", arch, bMultimonAllowed_addr);
     else puts("ERROR: bMultimonAllowed not found");
 
     if (lMaxUserSessions_addr)
-        printf("lMaxUserSessions.%s=%zX\n", arch, lMaxUserSessions_addr);
+        printf("lMaxUserSessions.%s=%IX\n", arch, lMaxUserSessions_addr);
     else puts("ERROR: lMaxUserSessions not found");
 
     if (ulMaxDebugSessions_addr)
-        printf("ulMaxDebugSessions.%s=%zX\n", arch, ulMaxDebugSessions_addr);
+        printf("ulMaxDebugSessions.%s=%IX\n", arch, ulMaxDebugSessions_addr);
     else puts("ERROR: ulMaxDebugSessions not found");
 
     if (bInitialized_addr)
-        printf("bInitialized.%s=%zX\n", arch, bInitialized_addr);
+        printf("bInitialized.%s=%IX\n", arch, bInitialized_addr);
     else puts("ERROR: bInitialized not found");
 
     ExitProcess(0);
