@@ -3,3 +3,5 @@ x64/
 [Rr]elease/
 [Dd]ebug/
 *.dll
+*.aps
+RDPWrapOffsetFinder/version.h
